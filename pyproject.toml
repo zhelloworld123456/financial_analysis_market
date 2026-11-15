@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "financial-analysis-market"
+version = "0.1.0"
+description = "精简的 A 股实时分析与五日统计预测工具"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+fam = "financial_analysis_market.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["financial_analysis_market*"]
+
+[tool.setuptools.package-data]
+financial_analysis_market = ["static/*.html", "static/*.css", "static/*.js"]

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Financial Analysis Market · 股票研究工作台</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">F</span><div><strong>简析</strong><small>FINANCIAL MARKET</small></div></div>
+      <div class="nav-caption">研究模块</div>
+      <nav class="side-nav" aria-label="股票分析模块">
+        <button class="active" data-view="timing"><span>01</span><strong>好时机</strong><small>趋势 · 板块 · 公告</small></button>
+        <button data-view="stock"><span>02</span><strong>好股票</strong><small>盈利 · 成长 · 现金流</small></button>
+        <button data-view="price"><span>03</span><strong>好价格</strong><small>PE · PB · 估值区间</small></button>
+        <button data-view="history"><span>04</span><strong>股票历史分析</strong><small>收益 · 回撤 · 年度表现</small></button>
+        <button data-view="agents"><span>05</span><strong>多agent股票分析</strong><small>五专家 · Kimi 主编</small></button>
+        <button data-view="weekly"><span>06</span><strong>一周走势预测</strong><small>热点 · 消息 · 行业周期</small></button>
+      </nav>
+      <div class="sidebar-bottom"><div class="system-dot"></div><span>本地研究系统</span><p>数据与模型仅供研究，不构成投资建议。</p></div>
+    </aside>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <div class="view-heading"><p id="view-eyebrow">MARKET TIMING</p><h1 id="view-title">好时机</h1><span id="view-subtitle">判断趋势、行业强弱与事件驱动的研究窗口</span></div>
+        <form id="search-form" class="global-search">
+          <input id="query" value="贵州茅台" maxlength="40" autocomplete="off" aria-label="股票名称或代码" placeholder="股票名称 / 6位代码" required>
+          <button id="submit" type="submit">分析</button>
+        </form>
+      </header>
+
+      <div class="config-bar">
+        <label class="ai-toggle"><input id="use-ai" type="checkbox" checked>同时运行 Kimi 多 Agent</label>
+        <span id="ai-capability">正在检查模型配置…</span>
+        <span id="data-status">等待分析</span>
+      </div>
+
+      <main class="content">
+        <div id="loading" class="notice hidden"></div>
+        <div id="error" class="notice error hidden" role="alert"></div>
+
+        <section id="empty-state" class="empty-state">
+          <p class="eyebrow">A-SHARE RESEARCH WORKSPACE</p><h2>从事实出发，建立完整股票研究视图。</h2>
+          <p>输入股票名称或代码，一次获取行情、财报、板块、公告、历史统计与多 Agent 结论。左侧切换研究维度，下方进行股票池组合筛选。</p>
+          <div class="empty-features"><span>三维评分</span><span>历史回测统计</span><span>公告事件</span><span>组合筛选</span><span>多 Agent 研究</span></div>
+        </section>
+
+        <section id="stock-content" class="hidden">
+          <div class="stock-banner">
+            <div><div class="stock-title"><h2 id="stock-name"></h2><span id="stock-code" class="tag"></span><span id="stock-industry" class="tag"></span></div><p id="quote-time"></p></div>
+            <div class="last-price"><strong id="last-price"></strong><span id="price-change"></span></div>
+            <div class="header-scores"><div><span>好股票</span><strong id="header-score-stock"></strong></div><div><span>好价格</span><strong id="header-score-price"></strong></div><div><span>好时机</span><strong id="header-score-timing"></strong></div><div class="overall"><span>综合</span><strong id="header-score-overall"></strong></div></div>
+          </div>
+
+          <div id="view-timing" class="view-panel">
+            <section class="panel score-panel"><div><p class="eyebrow">TIMING SCORE</p><h3>好时机研究结论</h3><span id="timing-label" class="verdict"></span></div><strong id="timing-score-big" class="big-score"></strong><ul id="timing-reasons" class="reason-list"></ul></section>
+            <section class="panel"><div class="panel-head"><div><h3>价格趋势与五日统计预测</h3><p>前复权收盘价，橙色为预测及约80%区间</p></div><span id="forecast-weekly" class="highlight-value"></span></div><svg id="timing-chart" class="price-chart" viewBox="0 0 1000 300" role="img" aria-label="价格趋势与五日预测"></svg></section>
+            <div class="two-col">
+              <section class="panel"><div class="panel-head"><h3>技术指标</h3><span id="technical-signal" class="tag"></span></div><div class="metric-grid three"><div><span>MA5</span><strong id="ma5"></strong></div><div><span>MA20</span><strong id="ma20"></strong></div><div><span>MA60</span><strong id="ma60"></strong></div><div><span>RSI14</span><strong id="rsi"></strong></div><div><span>20日动量</span><strong id="momentum"></strong></div><div><span>年化波动</span><strong id="volatility"></strong></div><div><span>20日支撑</span><strong id="support"></strong></div><div><span>20日压力</span><strong id="resistance"></strong></div><div><span>MACD 柱</span><strong id="macd"></strong></div></div></section>
+              <section class="panel"><div class="panel-head"><h3>五日逐日估计</h3></div><div class="table-wrap"><table><thead><tr><th>日期</th><th>方向</th><th>涨跌幅</th><th>收盘价</th><th>约80%区间</th></tr></thead><tbody id="forecast-body"></tbody></table></div></section>
+            </div>
+            <section class="panel"><div class="panel-head"><div><h3>近90日公告事件</h3><p>标题关键词辅助判断，点击阅读全文</p></div></div><div id="announcement-list" class="announcement-list"></div></section>
+          </div>
+
+          <div id="view-stock" class="view-panel hidden">
+            <section class="panel score-panel"><div><p class="eyebrow">QUALITY SCORE</p><h3>好股票研究结论</h3><span id="quality-label" class="verdict"></span></div><strong id="stock-score-big" class="big-score"></strong><ul id="stock-reasons" class="reason-list"></ul></section>
+            <div class="metric-grid five standalone"><div><span>年化 ROE</span><strong id="annual-roe"></strong></div><div><span>营收同比</span><strong id="revenue-growth"></strong></div><div><span>净利同比</span><strong id="profit-growth"></strong></div><div><span>销售毛利率</span><strong id="gross-margin"></strong></div><div><span>现金流 / EPS</span><strong id="cash-conversion"></strong></div></div>
+            <section class="panel"><div class="panel-head"><div><h3>最近四期财务报告</h3><p id="fund-summary"></p></div></div><div class="table-wrap"><table><thead><tr><th>报告期</th><th>营收</th><th>归母净利</th><th>营收同比</th><th>净利同比</th><th>EPS</th><th>ROE</th></tr></thead><tbody id="stock-finance-body"></tbody></table></div></section>
+          </div>
+
+          <div id="view-price" class="view-panel hidden">
+            <section class="panel score-panel"><div><p class="eyebrow">VALUATION SCORE</p><h3>好价格研究结论</h3><span id="valuation-label" class="verdict"></span></div><strong id="price-score-big" class="big-score"></strong><ul id="price-reasons" class="reason-list"></ul></section>
+            <div class="metric-grid five standalone"><div><span>动态 PE</span><strong id="pe"></strong></div><div><span>PB</span><strong id="pb"></strong></div><div><span>模型合理 PE</span><strong id="fair-pe"></strong></div><div><span>模型合理 PB</span><strong id="fair-pb"></strong></div><div><span>估值参考区间</span><strong id="value-range"></strong></div></div>
+            <section class="panel"><div class="panel-head"><div><h3>价格位置</h3><p id="industry-note"></p></div></div><svg id="price-history-chart" class="price-chart" viewBox="0 0 1000 300" role="img" aria-label="估值分析历史价格"></svg></section>
+          </div>
+
+          <div id="view-history" class="view-panel hidden">
+            <div class="metric-grid five standalone"><div><span>近20日</span><strong id="history-return-20"></strong></div><div><span>近60日</span><strong id="history-return-60"></strong></div><div><span>近244日</span><strong id="history-return-244"></strong></div><div><span>一年最大回撤</span><strong id="history-drawdown"></strong></div><div><span>52周价格位置</span><strong id="history-position"></strong></div></div>
+            <section class="panel"><div class="panel-head"><div><h3>历史价格轨迹</h3><p id="history-period"></p></div></div><svg id="history-chart" class="price-chart" viewBox="0 0 1000 300" role="img" aria-label="股票历史价格"></svg></section>
+            <div class="two-col"><section class="panel"><div class="panel-head"><h3>样本内年度涨跌</h3></div><div id="yearly-bars" class="yearly-bars"></div><p id="yearly-note" class="small-note"></p></section><section class="panel"><div class="panel-head"><h3>历史风险统计</h3></div><div class="metric-grid two"><div><span>52周最高</span><strong id="history-high"></strong></div><div><span>52周最低</span><strong id="history-low"></strong></div><div><span>一年年化波动</span><strong id="history-volatility"></strong></div><div><span>60日上涨占比</span><strong id="history-up-days"></strong></div><div><span>最佳单日</span><strong id="history-best"></strong></div><div><span>最差单日</span><strong id="history-worst"></strong></div></div></section></div>
+            <section class="panel"><div class="panel-head"><h3>历史财务记录</h3></div><div class="table-wrap"><table><thead><tr><th>报告期</th><th>营收</th><th>归母净利</th><th>营收同比</th><th>净利同比</th><th>EPS</th><th>ROE</th></tr></thead><tbody id="history-finance-body"></tbody></table></div></section>
+            <section class="panel"><div class="panel-head"><h3>风险提示</h3></div><ul id="risk-list" class="reason-list"></ul></section>
+          </div>
+
+          <div id="view-weekly" class="view-panel hidden">
+            <section class="panel weekly-hero"><div><p class="eyebrow">FIVE-TRADING-DAY OUTLOOK</p><h3>未来五个交易日多维预测</h3><p id="weekly-method"></p></div><div class="weekly-result"><span id="weekly-direction" class="verdict"></span><strong id="weekly-return"></strong><small>五日累计估计</small></div><div class="weekly-comparison"><div><span>原统计模型</span><strong id="weekly-statistical"></strong></div><div><span>多因子影响</span><strong id="weekly-factor-impact"></strong></div></div></section>
+            <section class="panel"><div class="panel-head"><div><h3>预测价格与不确定性区间</h3><p>历史价格为统计基础，橙色为多维模型预测</p></div></div><svg id="weekly-chart" class="price-chart" viewBox="0 0 1000 300" role="img" aria-label="一周多维预测"></svg></section>
+            <section class="panel"><div class="panel-head"><div><h3>每日日内波动区间</h3><p id="weekly-intraday-note"></p></div></div><div id="weekly-day-cards" class="day-card-grid"></div></section>
+            <section class="panel"><div class="panel-head"><div><h3>五个交易日涨跌幅预测</h3><p>分别展示日内高低点、预计振幅、原统计涨跌幅、多因子调整和收盘区间</p></div></div><div class="table-wrap"><table><thead><tr><th>交易日</th><th>方向</th><th>预计开盘</th><th>日内最低~最高</th><th>最低/最高涨跌幅</th><th>预计振幅</th><th>统计涨跌幅</th><th>因子调整</th><th>收盘涨跌幅</th><th>预测收盘</th><th>约80%收盘区间</th></tr></thead><tbody id="weekly-body"></tbody></table></div></section>
+            <section class="panel"><div class="panel-head"><div><h3>七大预测因子</h3><p id="weekly-factor-note"></p></div></div><div id="weekly-factor-grid" class="factor-grid"></div></section>
+            <div class="two-col"><section class="panel"><div class="panel-head"><div><h3>大盘环境</h3><p>指数趋势用于判断市场共振方向</p></div></div><div id="market-index-grid" class="market-index-grid"></div></section><section class="panel"><div class="panel-head"><div><h3>当前市场热点</h3><p>按行业板块近5日涨跌幅排序</p></div></div><div id="hotspot-grid" class="hotspot-grid"></div></section></div>
+            <section class="panel"><div class="panel-head"><div><h3>利好与利空消息依据</h3><p>仅公司相关新闻进入舆情调整；所有标题均需阅读原文核实</p></div></div><div id="weekly-news-list" class="announcement-list"></div><ul id="weekly-risk-list" class="reason-list"></ul></section>
+          </div>
+
+          <div id="view-agents" class="view-panel hidden">
+            <section id="ai-research" class="panel"><div class="ai-header"><div><p class="eyebrow">KIMI MULTI-AGENT RESEARCH</p><h3 id="ai-headline" class="ai-headline"></h3><span id="ai-model" class="model-badge"></span></div><span id="ai-run-status" class="agent-status"></span></div><p id="ai-summary" class="ai-summary"></p><p id="ai-conclusion" class="conclusion-box"></p><div class="two-col"><div><h3>研究优势</h3><ul id="ai-strengths" class="reason-list"></ul></div><div><h3>风险与反证</h3><ul id="ai-risks" class="reason-list"></ul></div></div><h3>后续观察项</h3><ul id="ai-watch" class="reason-list"></ul><div id="agent-grid" class="agent-grid"></div><div class="ai-foot"><span id="ai-usage"></span><span id="ai-run-id"></span></div><p id="ai-notice" class="small-note"></p></section>
+          </div>
+          <div class="source-note"><span id="sources"></span><span id="generated-at"></span></div>
+        </section>
+
+        <section id="explorer" class="explorer">
+          <div class="section-heading"><div><p class="eyebrow">STOCK EXPLORER</p><h2>股票池条件筛选</h2><p>先加载研究样本，再组合筛选、排序和查看依据；当前模块自动切换默认排序。</p></div><form id="screen-form" class="pool-form"><select id="screen-limit" aria-label="候选池数量"><option value="10">10只候选</option><option value="20" selected>20只候选</option><option value="30">30只候选</option><option value="50">50只候选</option></select><button id="screen-submit" type="submit">加载股票池</button></form></div>
+          <div id="screen-loading" class="notice hidden">正在并发获取行情、财报、板块和公告，首次筛选可能需要数十秒…</div><div id="screen-error" class="notice error hidden"></div>
+          <form id="filter-form" class="filter-panel">
+            <div class="filter-grid basic"><label>名称 / 代码 / 行业<input id="filter-query" placeholder="模糊查询"></label><label>行业风格<select id="filter-industry"><option value="">全部行业</option><option>金融</option><option>消费</option><option>医药</option><option>科技</option><option>周期</option><option>制造</option><option>综合</option></select></label><label>最低综合分<input id="filter-min-overall" type="number" min="0" max="100" placeholder="0-100"></label><label>最低好股票<input id="filter-min-stock" type="number" min="0" max="100" placeholder="0-100"></label><label>最低好价格<input id="filter-min-price" type="number" min="0" max="100" placeholder="0-100"></label><label>最低好时机<input id="filter-min-timing" type="number" min="0" max="100" placeholder="0-100"></label></div>
+            <details class="advanced-filters"><summary>估值、业绩、技术与公告高级条件</summary><div class="filter-grid"><label>PE 最低<input id="filter-pe-min" type="number" step="any" placeholder="例如 0"></label><label>PE 最高<input id="filter-pe-max" type="number" step="any" placeholder="例如 30"></label><label>PB 最高<input id="filter-pb-max" type="number" step="any" placeholder="例如 5"></label><label>最低营收同比%<input id="filter-revenue-min" type="number" step="any" placeholder="例如 10"></label><label>最低净利同比%<input id="filter-profit-min" type="number" step="any" placeholder="例如 10"></label><label>最低年化 ROE%<input id="filter-roe-min" type="number" step="any" placeholder="例如 12"></label><label>20日动量最低%<input id="filter-momentum-min" type="number" step="any"></label><label>20日动量最高%<input id="filter-momentum-max" type="number" step="any"></label><label>RSI 最低<input id="filter-rsi-min" type="number" step="any" placeholder="例如 40"></label><label>RSI 最高<input id="filter-rsi-max" type="number" step="any" placeholder="例如 70"></label><label>公告事件<select id="filter-announcement"><option value="">全部</option><option value="positive">有利好关键词</option><option value="risk">有风险关键词</option><option value="no-risk">无风险关键词</option><option value="neutral">无命中事件</option></select></label></div></details>
+            <div class="filter-actions"><label>排序字段<select id="sort-by"><option value="overall">综合分</option><option value="good_stock">好股票分</option><option value="good_price">好价格分</option><option value="good_timing">好时机分</option><option value="pe">动态 PE</option><option value="pb">PB</option><option value="market_cap">总市值</option><option value="revenue_growth">营收同比</option><option value="profit_growth">净利同比</option><option value="roe">年化 ROE</option><option value="momentum">20日动量</option><option value="rsi">RSI</option></select></label><label>方向<select id="sort-order"><option value="desc">从高到低</option><option value="asc">从低到高</option></select></label><button type="submit" class="primary">应用筛选</button><button id="filter-reset" type="button">重置</button><button id="export-btn" type="button">导出 CSV</button></div>
+          </form>
+          <div id="screen-result" class="hidden"><div class="result-toolbar"><span id="filter-summary"></span><div id="active-filters" class="active-filters"></div></div><div id="qualified-list" class="qualified-list"></div><div class="table-wrap explorer-table"><table><thead id="explorer-head"></thead><tbody id="explorer-body"></tbody></table></div><div id="screen-meta" class="small-note"></div></div>
+          <section id="explorer-detail" class="panel hidden"><div class="panel-head"><div><h3 id="detail-title"></h3><p id="detail-note"></p></div><button id="detail-close" type="button" class="text-button">关闭</button></div><div class="three-col"><div><h3>好股票依据</h3><ul id="detail-stock" class="reason-list"></ul></div><div><h3>好价格依据</h3><ul id="detail-price" class="reason-list"></ul></div><div><h3>好时机依据</h3><ul id="detail-timing" class="reason-list"></ul></div></div></section>
+          <p class="disclaimer">候选池按总市值选取，存在大市值样本偏差。筛选和排序是研究工具，不代表收益承诺或买卖建议。</p>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
