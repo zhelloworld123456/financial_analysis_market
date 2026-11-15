@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterator
 from zoneinfo import ZoneInfo
 
 from .agents import ResearchTeam
 from .analysis import StockAnalyzer
+from .conversation import ConversationService
 from .errors import DataSourceError
 from .forecast import WeeklyForecaster
 from .kimi import KimiClient
@@ -98,8 +99,28 @@ class AnalysisEngine:
             "warnings": warnings,
         }
 
+    def chat(
+        self,
+        message: str,
+        query: str = "",
+        session_id: str | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        service = self.context.get("conversation")
+        return service.respond(
+            message=message,
+            query=query,
+            session_id=session_id,
+            analysis_loader=lambda: self.analyze(query, use_ai=False),
+        )
+
+    def chat_snapshot(self, session_id: str) -> dict[str, Any]:
+        return self.context.get("conversation").snapshot(session_id)
+
     def capabilities(self) -> dict[str, Any]:
-        return {"ai": self.context.get("research_team").public_config()}
+        return {
+            "ai": self.context.get("research_team").public_config(),
+            "conversation": self.context.get("conversation").public_config(),
+        }
 
     def screen(self, limit: int = 20) -> dict[str, Any]:
         self.context.emit("screen/started", {"limit": limit})
@@ -118,5 +139,7 @@ def create_engine(timeout: float = 12.0) -> AnalysisEngine:
     context.register("scorer", scorer)
     context.register("forecaster", WeeklyForecaster())
     context.register("screener", StockScreener(provider, analyzer, scorer))
-    context.register("research_team", ResearchTeam(KimiClient.from_env()))
+    kimi = KimiClient.from_env()
+    context.register("research_team", ResearchTeam(kimi))
+    context.register("conversation", ConversationService(kimi))
     return AnalysisEngine(context)

@@ -22,6 +22,7 @@ const viewConfig = {
   price: { title: '好价格', eyebrow: 'VALUATION RESEARCH', subtitle: '结合行业特征比较估值与盈利、净资产参考区间', explorer: true, sort: 'good_price' },
   history: { title: '股票历史分析', eyebrow: 'HISTORICAL ANALYSIS', subtitle: '观察长期收益、回撤、波动和年度表现', explorer: false, sort: 'overall' },
   agents: { title: '多agent股票分析', eyebrow: 'MULTI-AGENT RESEARCH', subtitle: '五个专家并行研究，Kimi 主编综合结论', explorer: false, sort: 'overall' },
+  chat: { title: '多 Agent 对话', eyebrow: 'MULTI-AGENT CONVERSATION', subtitle: '连续追问、Agent 公开讨论与全链路实时追踪', explorer: false, sort: 'overall' },
   weekly: { title: '一周走势预测', eyebrow: 'FIVE-TRADING-DAY OUTLOOK', subtitle: '结合热点、消息、行业周期和业绩的五个交易日预测', explorer: false, sort: 'overall' }
 };
 
@@ -29,6 +30,12 @@ let currentView = 'timing';
 let stockData = null;
 let screenData = null;
 let filteredItems = [];
+let chatSessionId = null;
+let chatRunning = false;
+let chatAvailable = true;
+let activeTraceId = null;
+const chatTraces = new Map();
+const renderedChatMessages = new Set();
 
 function switchView(view) {
   currentView = view;
@@ -39,6 +46,8 @@ function switchView(view) {
   text('view-subtitle', config.subtitle);
   document.querySelectorAll('.view-panel').forEach(panel => panel.classList.add('hidden'));
   $(`view-${view}`).classList.remove('hidden');
+  $('empty-state').classList.toggle('hidden', view === 'chat' || Boolean(stockData));
+  $('stock-content').classList.toggle('hidden', view === 'chat' || !stockData);
   $('explorer').classList.toggle('hidden', !config.explorer);
   $('sort-by').value = config.sort;
   if (screenData && config.explorer) applyFilters();
@@ -54,7 +63,17 @@ fetch('/api/capabilities').then(response => response.json()).then(data => {
   } else {
     text('ai-capability', `${data.ai.model} · 五专家并行 + 主编`);
   }
-}).catch(() => text('ai-capability', '模型配置检查失败，将自动降级'));
+  if (!data.conversation.available) {
+    chatAvailable = false;
+    $('chat-send').disabled = true;
+    text('chat-capability', '未配置 KIMI_API_KEY，多 Agent 对话不可用');
+  } else {
+    text('chat-capability', `${data.conversation.model} · 五角色顺序公开讨论`);
+  }
+}).catch(() => {
+  text('ai-capability', '模型配置检查失败，将自动降级');
+  text('chat-capability', '模型配置检查失败');
+});
 
 $('search-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -78,7 +97,7 @@ $('search-form').addEventListener('submit', async event => {
     $('empty-state').classList.add('hidden');
     $('stock-content').classList.remove('hidden');
     text('data-status', `${data.stock.name} · 已更新`);
-    switchView(currentView);
+    switchView(currentView === 'chat' ? 'timing' : currentView);
   } catch (error) {
     $('error').textContent = error.message || '网络连接失败，请稍后重试';
     $('error').classList.remove('hidden');
@@ -460,6 +479,294 @@ function renderChart(id, history, days, includeForecast) {
   markup += `<text x="${width - right}" y="${height - 13}" text-anchor="end" fill="#7a8586" font-size="11">${history[history.length - 1].date}</text>`;
   svg.innerHTML = markup;
 }
+
+function setChatRunning(running) {
+  chatRunning = running;
+  $('chat-send').disabled = running || !chatAvailable;
+  $('chat-new').disabled = running;
+  $('chat-message').disabled = running;
+  $('chat-query').disabled = running || Boolean(chatSessionId);
+  $('chat-running').classList.toggle('hidden', !running);
+  $('chat-send').textContent = running ? '讨论中…' : '发送';
+}
+
+function saveChatSession() {
+  try {
+    if (chatSessionId) localStorage.setItem('fam.chat.session', chatSessionId);
+    else localStorage.removeItem('fam.chat.session');
+  } catch (error) {}
+}
+
+function traceStatusLabel(status) {
+  return ({ running: '进行中', completed: '已完成', degraded: '部分降级', failed: '失败' })[status] || '等待提问';
+}
+
+function updateTraceOptions() {
+  const select = $('trace-turn-select');
+  select.replaceChildren();
+  let index = 0;
+  chatTraces.forEach((record, id) => {
+    index += 1;
+    const option = node('option', `第 ${index} 轮 · ${record.question.slice(0, 24)}`);
+    option.value = id;
+    select.append(option);
+  });
+  select.classList.toggle('hidden', !chatTraces.size);
+  if (activeTraceId) select.value = activeTraceId;
+}
+
+function renderTrace() {
+  const list = $('trace-events');
+  const record = chatTraces.get(activeTraceId);
+  list.replaceChildren();
+  if (!record) {
+    list.append(node('li', '发送问题后，这里会实时显示每个 Agent 的调用与消息链路。', 'trace-empty'));
+    text('trace-id', '');
+    text('trace-usage', '');
+    text('trace-status', '等待提问');
+    $('trace-status').className = 'agent-status';
+    return;
+  }
+  text('trace-id', `${record.id} · Session ${chatSessionId || ''}`);
+  text('trace-status', traceStatusLabel(record.status));
+  $('trace-status').className = `agent-status ${record.status}`;
+  const usage = record.usage;
+  text('trace-usage', usage ? `${usage.total_tokens} tokens${record.duration_ms ? ` · ${(record.duration_ms / 1000).toFixed(1)}s` : ''}` : '等待用量统计');
+  record.events.forEach(event => {
+    const item = document.createElement('li');
+    item.className = `trace-event ${event.status || ''}`;
+    const head = document.createElement('div');
+    head.className = 'trace-event-head';
+    head.append(node('strong', `${event.sequence}. ${event.name || event.event}`), node('time', (event.timestamp || '').slice(11, 23)));
+    item.append(head);
+    if (event.span_id) {
+      const span = node('span', `${event.span_id} · 父 ${event.parent_span_id || '—'}`, 'trace-event-meta');
+      span.title = `Trace ${event.trace_id}\nSpan ${event.span_id}\nParent ${event.parent_span_id || '—'}`;
+      item.append(span);
+    }
+    const metrics = [];
+    if (event.duration_ms !== undefined) metrics.push(`${(event.duration_ms / 1000).toFixed(2)}s`);
+    if (event.usage) metrics.push(`${event.usage.total_tokens} tokens`);
+    if (event.request_id) metrics.push(`请求 ${event.request_id}`);
+    if (metrics.length) item.append(node('span', metrics.join(' · '), 'trace-event-meta'));
+    if (event.detail) item.append(node('p', event.detail, `trace-event-detail${event.event === 'agent/message' ? ' agent-output' : ''}`));
+    list.append(item);
+  });
+  list.scrollTop = list.scrollHeight;
+}
+
+function appendChatMessage(message) {
+  if (renderedChatMessages.has(message.id)) return;
+  renderedChatMessages.add(message.id);
+  $('chat-welcome').classList.add('hidden');
+  const article = document.createElement('article');
+  const isLead = message.agent_id === 'lead';
+  article.className = `chat-message ${message.role === 'user' ? 'user' : ''} ${isLead ? 'lead' : ''} ${message.status === 'failed' ? 'failed' : ''}`;
+  const head = document.createElement('div');
+  head.className = 'chat-message-head';
+  head.append(node('strong', message.agent), node('span', `→ ${message.target}`, 'chat-target'));
+  if (message.status === 'failed') head.append(node('span', '已降级', 'agent-status failed'));
+  head.append(node('time', (message.timestamp || '').slice(11, 19)));
+  article.append(head, node('p', message.content));
+  if (message.key_points && message.key_points.length) {
+    const list = document.createElement('ul');
+    message.key_points.forEach(point => list.append(node('li', point)));
+    article.append(list);
+  }
+  if (message.handoff && message.role !== 'user') {
+    article.append(node('div', `${isLead ? '风险边界' : `交接给 ${message.target}`}：${message.handoff}`, 'chat-handoff'));
+  }
+  $('chat-messages').append(article);
+  $('chat-messages').scrollTop = $('chat-messages').scrollHeight;
+}
+
+function handleChatEvent(data) {
+  if (data.type === 'trace') {
+    const event = data.trace;
+    if (event.event === 'trace/started') {
+      chatSessionId = event.session_id;
+      activeTraceId = event.trace_id;
+      chatTraces.set(event.trace_id, {
+        id: event.trace_id,
+        question: event.detail,
+        status: 'running',
+        events: [],
+        usage: null,
+        duration_ms: 0
+      });
+      $('chat-query').value = event.data.stock_query;
+      $('chat-query').disabled = true;
+      text('chat-stock', `${event.data.stock_query} · 多 Agent 会话`);
+      text('chat-session-status', `Session ${event.session_id}`);
+      saveChatSession();
+      updateTraceOptions();
+    }
+    if (!chatTraces.has(event.trace_id)) {
+      chatTraces.set(event.trace_id, { id: event.trace_id, question: event.name, status: 'running', events: [], usage: null });
+    }
+    const record = chatTraces.get(event.trace_id);
+    record.events.push(event);
+    if (event.event === 'trace/completed' || event.event === 'trace/failed') {
+      record.status = event.status;
+      record.usage = event.usage || record.usage;
+      record.duration_ms = event.duration_ms || 0;
+    }
+    if (event.message) appendChatMessage(event.message);
+    if (event.agent_id === 'data' && event.event === 'span/completed') text('chat-stock', event.detail);
+    if (event.trace_id === activeTraceId) renderTrace();
+    return;
+  }
+  if (data.type === 'done') {
+    const record = chatTraces.get(data.trace_id);
+    if (record) {
+      record.status = data.status;
+      record.usage = data.usage;
+      record.duration_ms = data.duration_ms;
+    }
+    text('chat-session-status', `${data.status === 'completed' ? '本轮完成' : '本轮部分降级'} · ${(data.duration_ms / 1000).toFixed(1)}s · 可继续追问`);
+    renderTrace();
+    return;
+  }
+  if (data.type === 'error') {
+    text('chat-error', data.error || '多 Agent 对话失败');
+    if (data.trace_id && chatTraces.has(data.trace_id)) {
+      chatTraces.get(data.trace_id).status = 'failed';
+      renderTrace();
+    }
+  }
+}
+
+async function consumeChatStream(response) {
+  if (!response.body) throw new Error('当前浏览器不支持流式响应');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    lines.filter(Boolean).forEach(line => handleChatEvent(JSON.parse(line)));
+    if (done) break;
+  }
+  if (buffer.trim()) handleChatEvent(JSON.parse(buffer));
+}
+
+$('chat-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (chatRunning) return;
+  const message = $('chat-message').value.trim();
+  const query = $('chat-query').value.trim();
+  if (!message || (!chatSessionId && !query)) return;
+  text('chat-error', '');
+  setChatRunning(true);
+  $('chat-message').value = '';
+  try {
+    const response = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, query, session_id: chatSessionId })
+    });
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || '对话请求失败');
+    }
+    await consumeChatStream(response);
+  } catch (error) {
+    text('chat-error', error.message || '网络连接失败，请稍后重试');
+    $('chat-message').value = $('chat-message').value || message;
+  } finally {
+    setChatRunning(false);
+  }
+});
+
+$('chat-message').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    $('chat-form').requestSubmit();
+  }
+});
+
+document.querySelectorAll('[data-chat-prompt]').forEach(button => button.addEventListener('click', () => {
+  $('chat-message').value = button.dataset.chatPrompt;
+  $('chat-message').focus();
+}));
+
+$('chat-new').addEventListener('click', () => {
+  chatSessionId = null;
+  activeTraceId = null;
+  chatTraces.clear();
+  renderedChatMessages.clear();
+  saveChatSession();
+  $('chat-messages').replaceChildren();
+  $('chat-welcome').classList.remove('hidden');
+  $('chat-query').disabled = false;
+  $('chat-message').value = '';
+  text('chat-stock', '新建多 Agent 研究会话');
+  text('chat-session-status', '主持分派，专家依次回应，风险红队质疑，主编综合回复');
+  text('chat-error', '');
+  updateTraceOptions();
+  renderTrace();
+  $('chat-query').focus();
+});
+
+$('trace-turn-select').addEventListener('change', event => {
+  activeTraceId = event.target.value;
+  renderTrace();
+});
+
+$('trace-export').addEventListener('click', () => {
+  const record = chatTraces.get(activeTraceId);
+  if (!record) return;
+  const payload = {
+    session_id: chatSessionId,
+    trace: record,
+    notice: '仅包含公开 Agent 消息与调用元数据，不包含模型思维链'
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${record.id}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+});
+
+async function restoreChatSession() {
+  let saved = null;
+  try { saved = localStorage.getItem('fam.chat.session'); } catch (error) {}
+  if (!saved) return;
+  try {
+    const response = await fetch(`/api/chat/session?id=${encodeURIComponent(saved)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '会话恢复失败');
+    chatSessionId = data.id;
+    $('chat-query').value = data.query;
+    $('chat-query').disabled = true;
+    text('chat-stock', data.stock ? `${data.stock.name}（${data.stock.code}）· 多 Agent 会话` : `${data.query} · 多 Agent 会话`);
+    text('chat-session-status', `Session ${data.id} · 已恢复 ${data.turns.length} 轮对话`);
+    data.turns.forEach(turn => {
+      chatTraces.set(turn.trace_id, {
+        id: turn.trace_id,
+        question: turn.question,
+        status: turn.status,
+        usage: turn.usage,
+        duration_ms: turn.duration_ms,
+        events: turn.events
+      });
+      turn.messages.forEach(appendChatMessage);
+      activeTraceId = turn.trace_id;
+    });
+    updateTraceOptions();
+    renderTrace();
+  } catch (error) {
+    chatSessionId = null;
+    saveChatSession();
+    text('chat-error', '原会话已失效，请新建会话');
+  }
+}
+
+restoreChatSession();
 
 $('screen-form').addEventListener('submit', async event => {
   event.preventDefault();

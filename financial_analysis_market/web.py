@@ -5,7 +5,7 @@ import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from .engine import AnalysisEngine
 from .errors import DataSourceError, FinancialAnalysisError, InvalidStockQuery
@@ -39,6 +39,12 @@ class AnalysisHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"status": "ok"})
         elif path == "/api/capabilities":
             self._send_json(200, self.server.engine.capabilities())
+        elif path == "/api/chat/session":
+            session_id = parse_qs(urlsplit(self.path).query).get("id", [""])[0]
+            try:
+                self._send_json(200, self.server.engine.chat_snapshot(session_id))
+            except ValueError as exc:
+                self._send_json(404, {"error": str(exc)})
         elif path in STATIC_FILES:
             file_path, content_type = STATIC_FILES[path]
             self._send_bytes(200, file_path.read_bytes(), content_type)
@@ -47,16 +53,30 @@ class AnalysisHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
-        if path not in ("/api/analyze", "/api/screen"):
+        if path not in ("/api/analyze", "/api/screen", "/api/chat/stream"):
             self._send_json(404, {"error": "接口不存在"})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > 4096:
+            if length <= 0 or length > (16384 if path == "/api/chat/stream" else 4096):
                 raise ValueError("请求体为空或过大")
             payload = json.loads(self.rfile.read(length))
             if not isinstance(payload, dict):
                 raise ValueError("请求体必须是 JSON 对象")
+            if path == "/api/chat/stream":
+                message = payload.get("message")
+                query = payload.get("query", "")
+                session_id = payload.get("session_id")
+                if not isinstance(message, str) or not message.strip() or len(message) > 2000:
+                    raise ValueError("message 必须是 1～2000 字的非空字符串")
+                if not isinstance(query, str) or len(query) > 40:
+                    raise ValueError("query 必须是最多 40 字的股票名称或代码")
+                if session_id is not None and not isinstance(session_id, str):
+                    raise ValueError("session_id 必须是字符串")
+                self._send_ndjson(
+                    self.server.engine.chat(message.strip(), query.strip(), session_id or None)
+                )
+                return
             if path == "/api/analyze":
                 if not isinstance(payload.get("query"), str):
                     raise ValueError("query 必须是股票名称或代码字符串")
@@ -81,6 +101,30 @@ class AnalysisHandler(BaseHTTPRequestHandler):
         except Exception:
             LOGGER.exception("分析请求失败")
             self._send_json(500, {"error": "服务内部错误，请查看终端日志"})
+
+    def _send_ndjson(self, events: Any) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        self.close_connection = True
+        try:
+            for event in events:
+                body = json.dumps(event, ensure_ascii=False, allow_nan=False).encode("utf-8") + b"\n"
+                self.wfile.write(body)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except Exception:
+            LOGGER.exception("对话事件流中断")
+            try:
+                body = json.dumps({"type": "error", "error": "对话事件流中断，请查看终端日志"}, ensure_ascii=False).encode("utf-8") + b"\n"
+                self.wfile.write(body)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                return
 
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
