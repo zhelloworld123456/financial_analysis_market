@@ -20,6 +20,7 @@ const viewConfig = {
   timing: { title: '好时机', eyebrow: 'MARKET TIMING', subtitle: '判断趋势、行业强弱与事件驱动的研究窗口', explorer: true, sort: 'good_timing' },
   stock: { title: '好股票', eyebrow: 'BUSINESS QUALITY', subtitle: '从盈利、成长、现金流和稳定性评估企业质量', explorer: true, sort: 'good_stock' },
   price: { title: '好价格', eyebrow: 'VALUATION RESEARCH', subtitle: '结合行业特征比较估值与盈利、净资产参考区间', explorer: true, sort: 'good_price' },
+  factors: { title: '七维评估', eyebrow: 'SEVEN-FACTOR SCORECARD', subtitle: '盈利、成长、现金、财务安全、估值、市场风险与治理', explorer: true, sort: 'overall' },
   history: { title: '股票历史分析', eyebrow: 'HISTORICAL ANALYSIS', subtitle: '观察长期收益、回撤、波动和年度表现', explorer: false, sort: 'overall' },
   agents: { title: '多agent股票分析', eyebrow: 'MULTI-AGENT RESEARCH', subtitle: '五个专家并行研究，Kimi 主编综合结论', explorer: false, sort: 'overall' },
   chat: { title: '多 Agent 对话', eyebrow: 'MULTI-AGENT CONVERSATION', subtitle: '连续追问、Agent 公开讨论与全链路实时追踪', explorer: false, sort: 'overall' },
@@ -127,6 +128,7 @@ function renderStock(data) {
   renderWeekly(data);
   renderQuality(data);
   renderValuation(data);
+  renderFactors(data);
   renderHistory(data);
   renderAI(data.ai_research);
 }
@@ -305,6 +307,91 @@ function renderValuation(data) {
   text('industry-note', `${scores.industry_style}行业模板：${scores.industry_note}`);
   renderChart('price-history-chart', data.history, [], false);
 }
+
+function renderFactors(data) {
+  const { scores, financials, historical, quote } = data;
+  const seven = scores.seven_factor;
+  const latest = financials[0] || {};
+  const multiple = value => value === null || value === undefined ? '—' : `${fmt(value)}倍`;
+  const netMargin = latest.net_profit !== null && latest.net_profit !== undefined && latest.revenue
+    ? latest.net_profit / latest.revenue * 100 : null;
+  const cashRatio = latest.operating_cash_flow !== null && latest.operating_cash_flow !== undefined && latest.net_profit > 0
+    ? latest.operating_cash_flow / latest.net_profit : null;
+  text('factor-summary', scores.summary);
+  text('factor-overall-score', fmt(seven.overall_score, 1));
+  text('factor-verdict', seven.verdict);
+  text('factor-coverage', `${seven.coverage.note}。当前覆盖 ${seven.coverage.available_dimensions}/7 个维度。`);
+  text('factor-report-date', latest.report_type ? `${latest.report_type} · ${latest.report_date}` : '暂无财报');
+  $('risk-veto-banner').classList.toggle('hidden', !seven.veto.triggered);
+  text('risk-veto-text', seven.veto.triggered
+    ? `${seven.veto.flags.map(item => item.detail).join('；')}。综合分不能抵消上述风险。`
+    : '');
+  const grid = $('factor-dimension-grid');
+  grid.replaceChildren();
+  seven.dimensions.forEach(dimension => {
+    const card = document.createElement('article');
+    card.className = `factor-dimension-card ${dimension.status === 'insufficient' ? 'insufficient' : ''}`;
+    const top = document.createElement('div');
+    top.className = 'factor-dimension-top';
+    top.append(node('strong', dimension.name), node('span', `权重 ${dimension.weight}%`));
+    const score = document.createElement('div');
+    score.className = 'factor-dimension-score';
+    score.append(node('strong', dimension.score === null ? '—' : fmt(dimension.score, 1)), node('span', dimension.label));
+    const track = document.createElement('div');
+    track.className = 'factor-score-track';
+    const fill = document.createElement('span');
+    fill.style.width = `${dimension.score || 0}%`;
+    track.append(fill);
+    const reasons = document.createElement('ul');
+    dimension.reasons.slice(0, 2).forEach(reason => reasons.append(node('li', reason)));
+    card.append(top, score, track, reasons);
+    grid.append(card);
+  });
+  const metrics = [
+    ['年化 ROE', pct(scores.good_stock.metrics.annualized_roe_pct), '报告期简单年化，非全年预测'],
+    ['销售毛利率', latest.gross_margin_pct === null || latest.gross_margin_pct === undefined ? '—' : pct(latest.gross_margin_pct), '同行业、同口径比较'],
+    ['归母净利率', pct(netMargin), '归母净利润 ÷ 营收'],
+    ['营收 / 净利同比', `${pct(latest.revenue_yoy_pct)} / ${pct(latest.net_profit_yoy_pct)}`, '关注低基数和一次性收益'],
+    ['经营现金流', money(latest.operating_cash_flow), '同一报告期累计值'],
+    ['自由现金流 FCF', money(latest.free_cash_flow), '经营现金流 − 资本开支'],
+    ['经营现金流 / 净利润', multiple(cashRatio), '检验利润现金含量'],
+    ['资本开支', money(latest.capital_expenditure), '购建长期资产支付现金'],
+    ['资产负债率', pct(latest.debt_asset_ratio_pct), '金融企业不适用普通标准'],
+    ['流动比率', multiple(latest.current_ratio), '需结合资产变现与债务期限'],
+    ['PE / PB', `${fmt(quote.pe_dynamic)} / ${fmt(quote.pb)}`, '区分行业与盈利周期'],
+    ['PS（年化参考）', multiple(scores.good_price.metrics.ps_ratio), '总市值 ÷ 简单年化营收'],
+    ['最新股息率', pct(latest.dividend_yield_pct), '高分红需核查持续性'],
+    ['一年最大回撤', pct(historical.max_drawdown_1y_pct), '历史极端损失不代表未来上限'],
+    ['换手率', pct(quote.turnover_pct), '辅助观察流动性与交易热度'],
+    ['20 日平均成交额', money(historical.average_amount_20d), '结合流通市值和买卖价差']
+  ];
+  const metricGrid = $('core-metric-grid');
+  metricGrid.replaceChildren();
+  metrics.forEach(([label, value, note]) => {
+    const item = document.createElement('div');
+    item.className = 'core-metric-item';
+    item.append(node('span', label), node('strong', value), node('small', note));
+    metricGrid.append(item);
+  });
+  const flags = $('red-flag-list');
+  flags.replaceChildren();
+  if (!scores.red_flags.length) {
+    flags.append(node('p', '当前规则未触发财务或公告红旗；这不代表不存在风险，仍需检查原文和附注。', 'small-note'));
+  }
+  scores.red_flags.forEach(flag => {
+    const item = document.createElement('article');
+    item.className = `red-flag-item ${flag.severity === '高' ? 'high' : flag.severity === '观察' ? 'observe' : ''}`;
+    item.append(node('strong', `${flag.severity} · ${flag.title}`), node('p', flag.detail));
+    if (flag.veto) item.append(node('span', '风险否决项'));
+    flags.append(item);
+  });
+}
+
+const researchChecks = Array.from(document.querySelectorAll('[data-research-check]'));
+researchChecks.forEach(check => check.addEventListener('change', () => {
+  const completed = researchChecks.filter(item => item.checked).length;
+  text('research-progress', `${completed} / ${researchChecks.length}`);
+}));
 
 function renderHistory(data) {
   const history = data.historical;
@@ -919,6 +1006,13 @@ function explorerColumns() {
     { label: 'PE', value: item => fmt(item.quote.pe_dynamic) }, { label: 'PB', value: item => fmt(item.quote.pb) },
     { label: '估值区间', value: item => item.scores.good_price.metrics.value_low === null ? '—' : `${fmt(item.scores.good_price.metrics.value_low)}~${fmt(item.scores.good_price.metrics.value_high)}` },
     { label: '综合', value: item => fmt(item.scores.overall_score, 1) }
+  ]);
+  if (currentView === 'factors') return common.concat([
+    { label: '七维综合', value: item => fmt(item.scores.overall_score, 1), score: true },
+    { label: '有效维度', value: item => `${item.scores.seven_factor.coverage.available_dimensions}/7` },
+    { label: '现金/净利', value: item => fmt(item.scores.seven_factor.dimensions.find(dimension => dimension.id === 'cash').metrics.operating_cash_to_profit) },
+    { label: '负债率', value: item => pct(item.scores.seven_factor.dimensions.find(dimension => dimension.id === 'safety').metrics.debt_asset_ratio_pct) },
+    { label: '风险状态', value: item => item.scores.seven_factor.veto.triggered ? '风险否决' : `${item.scores.red_flags.length} 项观察` }
   ]);
   return common.concat([
     { label: '好时机', value: item => fmt(item.scores.good_timing.score, 1), score: true },

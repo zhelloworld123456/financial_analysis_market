@@ -54,33 +54,35 @@ NEGATIVE_KEYWORDS = ("立案", "处罚", "退市", "减持", "亏损", "诉讼",
 class ThreeFactorScorer:
     WEIGHTS = {"good_stock": 0.45, "good_price": 0.35, "good_timing": 0.20}
 
-    def score(self, bundle: StockBundle, technical: dict[str, Any]) -> dict[str, Any]:
+    def score(
+        self,
+        bundle: StockBundle,
+        technical: dict[str, Any],
+        historical: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         profile = _profile(bundle.quote.industry)
         good_stock = self._good_stock(bundle, profile)
         good_price = self._good_price(bundle, profile)
         announcement_review = _review_announcements(bundle.announcements)
         good_timing = self._good_timing(bundle, technical, announcement_review)
-        overall = round(
-            good_stock["score"] * self.WEIGHTS["good_stock"]
-            + good_price["score"] * self.WEIGHTS["good_price"]
-            + good_timing["score"] * self.WEIGHTS["good_timing"],
-            1,
+        red_flags = _red_flags(bundle, profile, announcement_review)
+        seven_factor = _seven_factor(
+            bundle, profile, technical, historical, good_price, good_timing, red_flags
         )
-        if min(good_stock["score"], good_price["score"], good_timing["score"]) >= 70:
-            verdict = "三好共振"
-        elif overall >= 70:
-            verdict = "重点观察"
-        elif overall >= 55:
-            verdict = "等待更好条件"
-        else:
-            verdict = "谨慎研究"
         return {
-            "overall_score": overall,
-            "verdict": verdict,
-            "summary": f"好股票 {good_stock['score']:.1f}，好价格 {good_price['score']:.1f}，好时机 {good_timing['score']:.1f}；{verdict}",
+            "overall_score": seven_factor["overall_score"],
+            "verdict": seven_factor["verdict"],
+            "summary": (
+                f"七维综合 {seven_factor['overall_score']:.1f}，"
+                f"有效维度 {seven_factor['coverage']['available_dimensions']}/7；{seven_factor['verdict']}。"
+                f"三维参考：好股票 {good_stock['score']:.1f}，好价格 {good_price['score']:.1f}，"
+                f"好时机 {good_timing['score']:.1f}"
+            ),
             "good_stock": good_stock,
             "good_price": good_price,
             "good_timing": good_timing,
+            "seven_factor": seven_factor,
+            "red_flags": red_flags,
             "industry_style": profile["name"],
             "industry_note": profile["note"],
             "announcement_review": announcement_review,
@@ -89,8 +91,16 @@ class ThreeFactorScorer:
                 for item in announcement_review["items"]
                 if item["impact"] == "风险"
             ][:2],
-            "weights": {"好股票": 45, "好价格": 35, "好时机": 20},
-            "method_note": "分数用于同一候选池内的研究排序，不代表预期收益；公告仅分析标题关键词，需阅读原文核实",
+            "weights": {
+                "盈利与资本效率": 20,
+                "成长持续性": 15,
+                "现金流质量": 15,
+                "财务安全": 10,
+                "估值性价比": 20,
+                "市场与风险": 10,
+                "护城河与治理": 10,
+            },
+            "method_note": "七维评分按有效权重归一化，数据不足不强行评分；重大风险单独否决，公告仅分析标题关键词，需阅读原文核实",
         }
 
     def _good_stock(self, bundle: StockBundle, profile: dict[str, Any]) -> dict[str, Any]:
@@ -170,6 +180,18 @@ class ThreeFactorScorer:
         else:
             reasons.append("盈利或净资产数据不足，未计算估值参考区间")
         reasons.append(profile["note"])
+        annualized_revenue = None
+        dividend_yield = None
+        if bundle.financials:
+            latest = bundle.financials[0]
+            month = max(1, int(latest.report_date[5:7] or 12))
+            annualized_revenue = latest.revenue * 12 / month if latest.revenue is not None else None
+            dividend_yield = latest.dividend_yield_pct
+        ps_ratio = (
+            quote.total_market_value / annualized_revenue
+            if quote.total_market_value is not None and annualized_revenue
+            else None
+        )
         return {
             "score": score,
             "label": _label(score),
@@ -179,6 +201,8 @@ class ThreeFactorScorer:
                 "value_high": _round(value_high),
                 "fair_pe": _round(fair_pe),
                 "fair_pb": _round(fair_pb),
+                "ps_ratio": _round(ps_ratio),
+                "dividend_yield_pct": _round(dividend_yield),
             },
         }
 
@@ -236,6 +260,254 @@ class ThreeFactorScorer:
             "reasons": reasons,
             "metrics": {"relative_sector_20d_pct": _round(relative_strength), "announcement_score": announcement_score},
         }
+
+
+def _seven_factor(
+    bundle: StockBundle,
+    profile: dict[str, Any],
+    technical: dict[str, Any],
+    historical: dict[str, Any] | None,
+    good_price: dict[str, Any],
+    good_timing: dict[str, Any],
+    red_flags: list[dict[str, Any]],
+) -> dict[str, Any]:
+    latest = bundle.financials[0] if bundle.financials else None
+    profitability_score = None
+    growth_score = None
+    cash_score = None
+    safety_score = None
+    profitability_metrics: dict[str, Any] = {}
+    growth_metrics: dict[str, Any] = {}
+    cash_metrics: dict[str, Any] = {}
+    safety_metrics: dict[str, Any] = {}
+    profitability_reasons = ["缺少定期报告，盈利与资本效率暂不评分"]
+    growth_reasons = ["缺少定期报告，成长持续性暂不评分"]
+    cash_reasons = ["缺少现金流明细，现金流质量暂不评分"]
+    safety_reasons = ["缺少资产负债明细，财务安全暂不评分"]
+    if latest:
+        month = max(1, int(latest.report_date[5:7] or 12))
+        annual_factor = 12 / month
+        annual_roe = latest.roe_pct * annual_factor if latest.roe_pct is not None else None
+        net_margin = (
+            latest.net_profit / latest.revenue * 100
+            if latest.net_profit is not None and latest.revenue
+            else None
+        )
+        roe_score = _lerp(annual_roe, [(-10, 0), (0, 20), (6, 45), (10, 65), (15, 85), (25, 100)])
+        gross_score = None if profile["name"] == "金融" else _lerp(
+            latest.gross_margin_pct, [(0, 10), (10, 35), (25, 60), (40, 80), (60, 100)]
+        )
+        margin_score = _lerp(net_margin, [(-20, 0), (0, 20), (5, 45), (10, 65), (20, 85), (35, 100)])
+        profitability_score = _optional_weighted((roe_score, 55), (gross_score, 20), (margin_score, 25))
+        profitability_metrics = {
+            "annualized_roe_pct": _round(annual_roe),
+            "gross_margin_pct": _round(latest.gross_margin_pct),
+            "net_margin_pct": _round(net_margin),
+        }
+        profitability_reasons = [
+            f"报告期简单年化 ROE {_percent(annual_roe)}，净利率 {_percent(net_margin)}",
+            "ROIC 需要统一投入资本与 NOPAT 口径，当前不用不完整数据强行计算",
+        ]
+
+        growth_values = [
+            value
+            for report in bundle.financials
+            for value in (report.revenue_yoy_pct, report.net_profit_yoy_pct)
+            if value is not None
+        ]
+        stability = 100 * sum(value > 0 for value in growth_values) / len(growth_values) if growth_values else None
+        revenue_score = _lerp(latest.revenue_yoy_pct, [(-30, 0), (0, 40), (10, 70), (25, 90), (50, 100)])
+        profit_score = _lerp(latest.net_profit_yoy_pct, [(-50, 0), (0, 40), (15, 70), (40, 90), (100, 100)])
+        growth_score = _optional_weighted((revenue_score, 35), (profit_score, 40), (stability, 25))
+        growth_metrics = {
+            "revenue_yoy_pct": _round(latest.revenue_yoy_pct),
+            "net_profit_yoy_pct": _round(latest.net_profit_yoy_pct),
+            "positive_growth_ratio_pct": _round(stability),
+        }
+        growth_reasons = [
+            f"营收同比 {_signed(latest.revenue_yoy_pct)}，归母净利同比 {_signed(latest.net_profit_yoy_pct)}",
+            "四期同比指标用于观察稳定性，不等同于 3—5 年 CAGR，需警惕低基数和一次性收益",
+        ]
+
+        cash_ratio = (
+            latest.operating_cash_flow / latest.net_profit
+            if latest.operating_cash_flow is not None and latest.net_profit and latest.net_profit > 0
+            else None
+        )
+        fcf_margin = (
+            latest.free_cash_flow / latest.revenue * 100
+            if latest.free_cash_flow is not None and latest.revenue
+            else None
+        )
+        ratios = [
+            report.operating_cash_flow / report.net_profit
+            for report in bundle.financials
+            if report.operating_cash_flow is not None and report.net_profit and report.net_profit > 0
+        ]
+        cash_stability = 100 * sum(value >= 0.8 for value in ratios) / len(ratios) if ratios else None
+        cash_ratio_score = _lerp(cash_ratio, [(-1, 0), (0, 15), (0.5, 45), (0.8, 70), (1, 90), (1.5, 100)])
+        fcf_score = _lerp(fcf_margin, [(-30, 0), (0, 35), (5, 60), (10, 80), (20, 95), (35, 100)])
+        cash_score = _optional_weighted((cash_ratio_score, 55), (fcf_score, 25), (cash_stability, 20))
+        cash_metrics = {
+            "operating_cash_flow": latest.operating_cash_flow,
+            "capital_expenditure": latest.capital_expenditure,
+            "free_cash_flow": latest.free_cash_flow,
+            "operating_cash_to_profit": _round(cash_ratio),
+            "fcf_margin_pct": _round(fcf_margin),
+        }
+        cash_reasons = [
+            f"经营现金流/归母净利润 {_multiple(cash_ratio)}，自由现金流率 {_percent(fcf_margin)}",
+            "自由现金流为经营现金流减购建长期资产现金的简化口径，扩张期负值需结合资本开支回报分析",
+        ]
+
+        if profile["name"] != "金融":
+            debt_score = _lerp(
+                latest.debt_asset_ratio_pct,
+                [(0, 95), (20, 90), (40, 75), (60, 50), (75, 25), (90, 5), (100, 0)],
+            )
+            current_score = _lerp(
+                latest.current_ratio,
+                [(0, 5), (0.5, 20), (1, 50), (1.5, 75), (2, 90), (3, 95), (5, 100)],
+            )
+            interest_coverage = (
+                latest.operate_profit / latest.finance_expense
+                if latest.operate_profit is not None and latest.finance_expense and latest.finance_expense > 0
+                else None
+            )
+            interest_score = _lerp(
+                interest_coverage, [(0, 0), (1, 10), (2, 40), (5, 70), (10, 90), (20, 100)]
+            )
+            safety_score = _optional_weighted((debt_score, 50), (current_score, 25), (interest_score, 25))
+            safety_metrics = {
+                "debt_asset_ratio_pct": _round(latest.debt_asset_ratio_pct),
+                "current_ratio": _round(latest.current_ratio),
+                "interest_coverage": _round(interest_coverage),
+                "monetary_funds": latest.monetary_funds,
+                "short_loan": latest.short_loan,
+            }
+            safety_reasons = [
+                f"资产负债率 {_percent(latest.debt_asset_ratio_pct)}，流动比率 {_multiple(latest.current_ratio)}",
+                "未获得完整有息债务与到期结构，短期借款和货币资金只作辅助证据",
+            ]
+        else:
+            safety_reasons = ["金融企业不适用普通企业负债率和流动比率标准，需另行检查资本充足率、不良率等指标"]
+
+    drawdown = historical.get("max_drawdown_1y_pct") if historical else None
+    drawdown_score = _lerp(drawdown, [(-80, 0), (-50, 20), (-30, 50), (-15, 75), (-5, 90), (0, 95)])
+    market_score = _weighted((good_timing["score"], 80), (drawdown_score, 20))
+    dimensions = [
+        _dimension("profitability", "盈利与资本效率", 20, profitability_score, profitability_metrics, profitability_reasons),
+        _dimension("growth", "成长持续性", 15, growth_score, growth_metrics, growth_reasons),
+        _dimension("cash", "现金流质量", 15, cash_score, cash_metrics, cash_reasons),
+        _dimension("safety", "财务安全", 10, safety_score, safety_metrics, safety_reasons),
+        _dimension("valuation", "估值性价比", 20, good_price["score"], good_price["metrics"], good_price["reasons"]),
+        _dimension(
+            "market",
+            "市场与风险",
+            10,
+            market_score,
+            {
+                "momentum_20d_pct": technical["momentum_20d_pct"],
+                "annual_volatility_pct": technical["annual_volatility_pct"],
+                "max_drawdown_1y_pct": drawdown,
+                "turnover_pct": bundle.quote.turnover_pct,
+            },
+            [*good_timing["reasons"][:2], "最大回撤与波动仅描述历史路径，不代表未来最大损失"],
+        ),
+        _dimension(
+            "moat_governance",
+            "护城河与治理",
+            10,
+            None,
+            {},
+            ["需要结合竞争壁垒、资本配置、审计意见、股权质押和管理层治理进行定性研究"],
+        ),
+    ]
+    overall = _weighted(*[(item["score"], item["weight"]) for item in dimensions])
+    available = [item for item in dimensions if item["score"] is not None]
+    available_weight = sum(item["weight"] for item in available)
+    veto_flags = [item for item in red_flags if item["veto"]]
+    if veto_flags:
+        verdict = "风险优先"
+    elif overall >= 80:
+        verdict = "相对优秀"
+    elif overall >= 65:
+        verdict = "相对良好"
+    elif overall >= 50:
+        verdict = "中性观察"
+    else:
+        verdict = "谨慎评估"
+    return {
+        "overall_score": overall,
+        "verdict": verdict,
+        "dimensions": dimensions,
+        "coverage": {
+            "available_dimensions": len(available),
+            "total_dimensions": len(dimensions),
+            "available_weight": available_weight,
+            "coverage_pct": round(available_weight / 100 * 100, 1),
+            "note": f"综合分按 {available_weight}% 有效权重归一化；未评分维度不按零分处理",
+        },
+        "veto": {
+            "triggered": bool(veto_flags),
+            "flags": veto_flags,
+            "note": "重大治理或存续风险触发后，综合分不能抵消风险，需优先核对公告全文和审计报告",
+        },
+    }
+
+
+def _dimension(
+    dimension_id: str,
+    name: str,
+    weight: int,
+    score: float | None,
+    metrics: dict[str, Any],
+    reasons: list[str],
+) -> dict[str, Any]:
+    return {
+        "id": dimension_id,
+        "name": name,
+        "weight": weight,
+        "score": score,
+        "label": _label(score) if score is not None else "待研究",
+        "status": "completed" if score is not None else "insufficient",
+        "metrics": metrics,
+        "reasons": reasons,
+    }
+
+
+def _red_flags(
+    bundle: StockBundle,
+    profile: dict[str, Any],
+    announcement_review: dict[str, Any],
+) -> list[dict[str, Any]]:
+    flags = []
+    critical_words = ("立案", "退市", "无法表示意见", "否定意见", "非标准审计", "资金占用", "违规担保", "破产", "重整")
+    for item in announcement_review["items"]:
+        if any(word in item["title"] for word in critical_words):
+            flags.append(_red_flag("governance_announcement", "重大公告风险", item["title"], "高", True))
+    if not bundle.financials:
+        return flags
+    latest = bundle.financials[0]
+    if profile["name"] != "金融" and latest.debt_asset_ratio_pct is not None and latest.debt_asset_ratio_pct >= 80:
+        flags.append(_red_flag("high_leverage", "高杠杆", f"资产负债率 {latest.debt_asset_ratio_pct:.2f}%，需核查有息债务、受限资金和到期结构", "高", False))
+    if profile["name"] != "金融" and latest.current_ratio is not None and latest.current_ratio < 0.8:
+        flags.append(_red_flag("liquidity", "短期偿付压力", f"流动比率 {latest.current_ratio:.2f}，需结合存货、应收和债务期限判断", "中", False))
+    if latest.net_profit and latest.net_profit > 0 and latest.operating_cash_flow is not None:
+        cash_ratio = latest.operating_cash_flow / latest.net_profit
+        if cash_ratio < 0.5:
+            flags.append(_red_flag("cash_conversion", "利润现金含量偏低", f"经营现金流/归母净利润为 {cash_ratio:.2f}，需检查回款与营运资本", "中", False))
+        if latest.net_profit_yoy_pct is not None and latest.net_profit_yoy_pct > 0 and latest.operating_cash_flow < 0:
+            flags.append(_red_flag("profit_cash_divergence", "利润增长但经营现金流为负", "盈利与现金方向背离，应优先核查收入确认和回款", "高", False))
+    if latest.net_profit and latest.net_profit > 0 and latest.deduct_net_profit is not None and latest.deduct_net_profit < latest.net_profit * 0.5:
+        flags.append(_red_flag("non_recurring", "扣非利润明显低于归母利润", "利润可能较依赖非经常性收益，需核对利润构成", "中", False))
+    if latest.free_cash_flow is not None and latest.free_cash_flow < 0:
+        flags.append(_red_flag("negative_fcf", "自由现金流为负", "可能处于扩张期，也可能存在现金消耗；需拆分维持性与成长性资本开支", "观察", False))
+    return flags
+
+
+def _red_flag(code: str, title: str, detail: str, severity: str, veto: bool) -> dict[str, Any]:
+    return {"code": code, "title": title, "detail": detail, "severity": severity, "veto": veto}
 
 
 def _review_announcements(announcements: tuple[Announcement, ...]) -> dict[str, Any]:
@@ -309,11 +581,15 @@ def _profile(industry: str) -> dict[str, Any]:
     }
 
 
-def _weighted(*items: tuple[float | None, float]) -> float:
+def _optional_weighted(*items: tuple[float | None, float]) -> float | None:
     valid = [(score, weight) for score, weight in items if score is not None]
     if not valid:
-        return 0.0
+        return None
     return round(sum(score * weight for score, weight in valid) / sum(weight for _, weight in valid), 1)
+
+
+def _weighted(*items: tuple[float | None, float]) -> float:
+    return _optional_weighted(*items) or 0.0
 
 
 def _lerp(value: float | None, points: list[tuple[float, float]]) -> float | None:

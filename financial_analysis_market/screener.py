@@ -65,7 +65,8 @@ class StockScreener:
             "qualified": [
                 item
                 for item in results
-                if min(
+                if not item["scores"]["seven_factor"]["veto"]["triggered"]
+                and min(
                     item["scores"]["good_stock"]["score"],
                     item["scores"]["good_price"]["score"],
                     item["scores"]["good_timing"]["score"],
@@ -81,7 +82,7 @@ class StockScreener:
                 "好股票": "盈利、成长、现金流、毛利率和多期稳定性",
                 "好价格": "分行业 PE/PB、盈利法和净资产法估值参考",
                 "好时机": "趋势、动量、RSI、波动、板块相对强弱和近90日公告标题事件",
-                "综合": "好股票45% + 好价格35% + 好时机20%",
+                "综合": "七维评分按有效权重归一化；重大风险否决项不参与平均，触发后不进入优选名单",
             },
             "disclaimer": "筛选是因子排序，不构成投资建议。候选池存在大市值偏差，公告关键词不能替代公告全文和财务报表附注。",
         }
@@ -96,7 +97,8 @@ class StockScreener:
     def _compact(self, bundle: StockBundle) -> dict[str, Any]:
         technical = self.analyzer.technical(bundle.quote, bundle.history)
         fundamental = self.analyzer.fundamental(bundle.financials)
-        scores = self.scorer.score(bundle, technical)
+        historical = self.analyzer.historical(bundle.quote, bundle.history)
+        scores = self.scorer.score(bundle, technical, historical)
         return {
             "stock": asdict(bundle.stock),
             "quote": asdict(bundle.quote),

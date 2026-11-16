@@ -380,9 +380,78 @@ class EastmoneyProvider:
                     cash_flow_per_share=_number(row.get("MGJYXJJE")),
                     industry_code=str(row.get("BOARD_CODE") or ""),
                     industry_name=str(row.get("PUBLISHNAME") or ""),
+                    dividend_yield_pct=_number(row.get("ZXGXL")),
                 )
             )
-        return tuple(reports)
+        supplements: dict[str, dict[str, float | None]] = {}
+        field_maps = {
+            "RPT_DMSK_FN_BALANCE": {
+                "total_assets": "TOTAL_ASSETS",
+                "total_liabilities": "TOTAL_LIABILITIES",
+                "total_equity": "TOTAL_EQUITY",
+                "debt_asset_ratio_pct": "DEBT_ASSET_RATIO",
+                "current_ratio": "CURRENT_RATIO",
+                "monetary_funds": "MONETARYFUNDS",
+                "short_loan": "SHORT_LOAN",
+                "accounts_receivable": "ACCOUNTS_RECE",
+                "inventory": "INVENTORY",
+            },
+            "RPT_DMSK_FN_CASHFLOW": {
+                "operating_cash_flow": "NETCASH_OPERATE",
+                "capital_expenditure": "CONSTRUCT_LONG_ASSET",
+            },
+            "RPT_DMSK_FN_INCOME": {
+                "deduct_net_profit": "DEDUCT_PARENT_NETPROFIT",
+                "operate_profit": "OPERATE_PROFIT",
+                "total_profit": "TOTAL_PROFIT",
+                "income_tax": "INCOME_TAX",
+                "finance_expense": "FINANCE_EXPENSE",
+            },
+        }
+        for report_name, field_map in field_maps.items():
+            try:
+                supplement = self._fetch_financial_supplement(stock, report_name)
+            except DataSourceError:
+                continue
+            for row in supplement:
+                report_date = str(row.get("REPORT_DATE") or "")[:10]
+                if not report_date:
+                    continue
+                values = supplements.setdefault(report_date, {})
+                for target, source in field_map.items():
+                    value = _number(row.get(source))
+                    if target == "current_ratio" and value is not None:
+                        value /= 100
+                    values[target] = value
+        enriched = []
+        for report in reports:
+            values = supplements.get(report.report_date, {})
+            operating_cash_flow = values.get("operating_cash_flow")
+            capital_expenditure = values.get("capital_expenditure")
+            free_cash_flow = (
+                operating_cash_flow - capital_expenditure
+                if operating_cash_flow is not None and capital_expenditure is not None
+                else None
+            )
+            enriched.append(replace(report, **values, free_cash_flow=free_cash_flow))
+        return tuple(enriched)
+
+    def _fetch_financial_supplement(self, stock: Stock, report_name: str) -> list[dict[str, Any]]:
+        payload = self._get_json(
+            self.FINANCE_URL,
+            {
+                "reportName": report_name,
+                "columns": "ALL",
+                "filter": f'(SECURITY_CODE="{stock.code}")',
+                "pageNumber": "1",
+                "pageSize": "4",
+                "sortTypes": "-1",
+                "sortColumns": "REPORT_DATE",
+            },
+        )
+        if not payload.get("success"):
+            raise DataSourceError("财务明细接口暂时不可用")
+        return (payload.get("result") or {}).get("data") or []
 
     def fetch_announcements(self, stock: Stock) -> tuple[Announcement, ...]:
         payload = self._get_json(

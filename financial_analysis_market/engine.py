@@ -47,7 +47,7 @@ class AnalysisEngine:
         technical = analyzer.technical(bundle.quote, bundle.history)
         fundamental = analyzer.fundamental(bundle.financials)
         historical = analyzer.historical(bundle.quote, bundle.history)
-        scores = scorer.score(bundle, technical)
+        scores = scorer.score(bundle, technical, historical)
         forecast = forecaster.predict(
             bundle.history,
             bundle.quote.price,
@@ -71,7 +71,7 @@ class AnalysisEngine:
 
         weekly_return = forecast["weekly_return_pct"]
         summary = (
-            f"三维评分：{scores['summary']}。技术面{technical['signal']}，最新业绩{fundamental['status']}。"
+            f"研究评分：{scores['summary']}。技术面{technical['signal']}，最新业绩{fundamental['status']}。"
             f"统计模型估计未来 5 个工作日累计涨跌幅为 {weekly_return:+.2f}%，"
             "该结果仅描述基准情景，实际走势可能显著偏离。"
         )

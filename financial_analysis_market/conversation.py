@@ -165,7 +165,7 @@ class ConversationService:
                         "risk",
                         "风险审查 Agent",
                         "主编 Agent",
-                        "作为红队回应前面 Agent 的公开观点，指出证据不足、相互矛盾和主要下行风险。不得为了质疑而编造事实，并向主编给出需要保留的风险边界。",
+                        "作为红队回应前面 Agent 的公开观点，优先检查 seven_factor.veto、red_flags 和数据覆盖度，指出证据不足、相互矛盾和主要下行风险。不得为了质疑而编造事实，并向主编给出需要保留的风险边界。",
                     ),
                 ]
                 for agent_id, agent, target, focus in specs:

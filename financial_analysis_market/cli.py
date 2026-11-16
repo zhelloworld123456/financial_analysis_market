@@ -78,10 +78,18 @@ def _print_text(result: dict) -> None:
     print(f"业绩状态：{result['fundamental']['summary']}")
     scores = result["scores"]
     print(
-        f"三维评分：好股票 {scores['good_stock']['score']:.1f} / "
+        f"三维参考：好股票 {scores['good_stock']['score']:.1f} / "
         f"好价格 {scores['good_price']['score']:.1f} / "
-        f"好时机 {scores['good_timing']['score']:.1f} / 综合 {scores['overall_score']:.1f}"
+        f"好时机 {scores['good_timing']['score']:.1f}"
     )
+    seven = scores["seven_factor"]
+    print(
+        f"七维综合：{scores['overall_score']:.1f} / {seven['verdict']} / "
+        f"有效维度 {seven['coverage']['available_dimensions']}/7"
+    )
+    print("、".join(f"{item['name']}={item['score'] if item['score'] is not None else '待研究'}" for item in seven["dimensions"]))
+    if seven["veto"]["triggered"]:
+        print("重大风险否决：" + "；".join(item["detail"] for item in seven["veto"]["flags"]))
     print(f"研究结论：{scores['verdict']}（{scores['industry_style']}行业模板）")
     ai = result["ai_research"]
     if ai.get("enabled"):

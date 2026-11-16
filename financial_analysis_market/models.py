@@ -59,6 +59,24 @@ class FinancialReport:
     cash_flow_per_share: float | None = None
     industry_code: str = ""
     industry_name: str = ""
+    deduct_net_profit: float | None = None
+    operating_cash_flow: float | None = None
+    capital_expenditure: float | None = None
+    free_cash_flow: float | None = None
+    total_assets: float | None = None
+    total_liabilities: float | None = None
+    total_equity: float | None = None
+    debt_asset_ratio_pct: float | None = None
+    current_ratio: float | None = None
+    monetary_funds: float | None = None
+    short_loan: float | None = None
+    accounts_receivable: float | None = None
+    inventory: float | None = None
+    operate_profit: float | None = None
+    total_profit: float | None = None
+    income_tax: float | None = None
+    finance_expense: float | None = None
+    dividend_yield_pct: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

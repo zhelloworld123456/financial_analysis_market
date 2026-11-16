@@ -198,7 +198,7 @@ class ResearchTeam:
                 role="主编 Agent",
                 instructions=(
                     "综合五个专家任务与确定性评分，形成简洁、相互一致的研究摘要。"
-                    "专家观点与事实冲突时以事实为准；不得修改三维评分和五日预测。"
+                    "专家观点与事实冲突时以事实为准；不得修改三维参考分、七维评分、风险否决和五日预测。"
                     "说明优势、主要风险及后续需要跟踪的可验证事项。"
                 ),
                 evidence=evidence,
@@ -258,7 +258,7 @@ def _specialist_specs(base: dict[str, Any]) -> list[dict[str, Any]]:
         {
             "id": "risk",
             "title": "风险 Agent",
-            "instructions": "作为红队审查财务、估值、技术、行业、公告、数据完整性和模型风险，优先指出其他专家可能忽略的反证。",
+            "instructions": "作为红队审查财务、估值、技术、行业、公告、数据完整性和模型风险，优先检查 seven_factor.veto 与 red_flags，并指出其他专家可能忽略的反证。",
             "evidence": {**common, "fundamental": base["fundamental"], "technical": base["technical"], "scores": base["scores"], "known_risks": base["known_risks"]},
         },
     ]
@@ -359,7 +359,7 @@ def _fallback_lead(base: dict[str, Any]) -> dict[str, Any]:
             {"topic": "公告全文", "reason": "确认标题事件的交易金额、条件与潜在影响"},
             {"topic": "行业相对强弱", "reason": "观察个股是否继续跑赢或跑输所属板块"},
         ],
-        "research_conclusion": "保留确定性三维评分，等待更多可验证信息，不形成买卖指令",
+        "research_conclusion": "保留确定性三维参考分、七维评分与风险否决，等待更多可验证信息，不形成买卖指令",
     }
 
 
