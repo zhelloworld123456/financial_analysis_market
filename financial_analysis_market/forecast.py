@@ -72,7 +72,7 @@ class WeeklyForecaster:
             interval = 1.2816 * daily_volatility * math.sqrt(horizon) * uncertainty_multiplier
             change_pct = math.expm1(expected_return) * 100
             predicted_open = previous_price * math.exp(expected_return * 0.15)
-            intraday_range = _clamp((0.75 * atr_ratio + 0.45 * daily_volatility) * (1 + 0.05 * (horizon - 1)), 0.006, 0.20)
+            intraday_range = _clamp((0.75 * atr_ratio + 0.45 * daily_volatility) * (1 + 0.05 * min(horizon - 1, 4)), 0.006, 0.20)
             predicted_high = max(predicted_open, price) * (1 + intraday_range * 0.55)
             predicted_low = min(predicted_open, price) * (1 - intraday_range * 0.45)
             lower_close = price * math.exp(-interval)
@@ -83,6 +83,7 @@ class WeeklyForecaster:
                     "weekday": "一二三四五六日"[trading_day.weekday()],
                     "direction": "上涨" if change_pct > 0.05 else "下跌" if change_pct < -0.05 else "震荡",
                     "change_pct": round(change_pct, 3),
+                    "cumulative_return_pct": round((price / current_price - 1) * 100, 3),
                     "statistical_change_pct": round(math.expm1(statistical_return) * 100, 3),
                     "factor_adjustment_pct": round(math.expm1(event_return) * 100, 3),
                     "predicted_open": round(predicted_open, 2),
@@ -125,6 +126,72 @@ class WeeklyForecaster:
             "intraday_note": "日内高低价、高低点涨跌幅和振幅由 ATR 与历史波动估计，不是实际最高最低价承诺",
             "date_note": "日期按后续工作日估算，不含法定节假日校准",
         }
+
+    def predict_month(
+        self,
+        history: tuple[PriceBar, ...],
+        current_price: float,
+        rsi14: float,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        result = self.predict(history, current_price, rsi14, days=20, **kwargs)
+        days = result["days"]
+        monthly_return = result["weekly_return_pct"]
+        statistical_return = result["statistical_weekly_return_pct"]
+        predicted_closes = [current_price] + [day["predicted_close"] for day in days]
+        peak = predicted_closes[0]
+        max_drawdown = 0.0
+        for close in predicted_closes:
+            peak = max(peak, close)
+            max_drawdown = min(max_drawdown, (close / peak - 1) * 100)
+        checkpoints = []
+        for horizon in (5, 10, 15, 20):
+            day = days[horizon - 1]
+            checkpoints.append(
+                {
+                    "horizon": horizon,
+                    "date": day["date"],
+                    "predicted_close": day["predicted_close"],
+                    "cumulative_return_pct": day["cumulative_return_pct"],
+                    "lower_close_80": day["lower_close_80"],
+                    "upper_close_80": day["upper_close_80"],
+                }
+            )
+        monthly = {
+            key: value
+            for key, value in result.items()
+            if key not in {
+                "weekly_return_pct",
+                "statistical_weekly_return_pct",
+                "factor_weekly_impact_pct",
+                "weekly_direction",
+            }
+        }
+        monthly.update(
+            {
+                "horizon_trading_days": 20,
+                "start_date": days[0]["date"],
+                "end_date": days[-1]["date"],
+                "monthly_return_pct": monthly_return,
+                "statistical_monthly_return_pct": statistical_return,
+                "factor_monthly_impact_pct": result["factor_weekly_impact_pct"],
+                "monthly_direction": result["weekly_direction"],
+                "predicted_close": days[-1]["predicted_close"],
+                "lower_close_80": days[-1]["lower_close_80"],
+                "upper_close_80": days[-1]["upper_close_80"],
+                "predicted_high": max(day["predicted_high"] for day in days),
+                "predicted_low": min(day["predicted_low"] for day in days),
+                "max_predicted_drawdown_pct": round(max_drawdown, 3),
+                "up_days": sum(day["direction"] == "上涨" for day in days),
+                "down_days": sum(day["direction"] == "下跌" for day in days),
+                "flat_days": sum(day["direction"] == "震荡" for day in days),
+                "checkpoints": checkpoints,
+                "interval_note": "月末上下限为约 80% 模型统计区间；期限越长不确定性越大，不是收益保证或目标价",
+                "intraday_note": "日内区间仅用于逐日路径估计；月度最高与最低值是模型路径极值，不是实际极端行情边界",
+                "date_note": "一个月按 20 个后续工作日估算，不含沪深港交易所法定节假日和临时休市校准",
+            }
+        )
+        return monthly
 
 
 def _prediction_factors(

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "financial-analysis-market"
 version = "0.1.0"
-description = "精简的 A 股实时分析与五日统计预测工具"
+description = "沪深北 A 股与港股实时分析、筛选和五日及月度统计预测工具"
 requires-python = ">=3.11"
 dependencies = []
 

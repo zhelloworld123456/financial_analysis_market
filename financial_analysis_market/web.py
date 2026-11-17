@@ -86,9 +86,12 @@ class AnalysisHandler(BaseHTTPRequestHandler):
                 result = self.server.engine.analyze(payload["query"], use_ai=use_ai)
             else:
                 limit = payload.get("limit", 20)
+                market = payload.get("market", "all")
                 if not isinstance(limit, int) or isinstance(limit, bool):
                     raise ValueError("limit 必须是 5～50 的整数")
-                result = self.server.engine.screen(limit)
+                if market not in ("all", "a", "hk"):
+                    raise ValueError("market 必须是 all、a 或 hk")
+                result = self.server.engine.screen(limit, market)
             self._send_json(200, result)
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(400, {"error": f"请求格式错误：{exc}"})

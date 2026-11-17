@@ -9,6 +9,7 @@ class Stock:
     name: str
     secid: str
     market: str
+    currency: str = "CNY"
 
 
 @dataclass(frozen=True, slots=True)

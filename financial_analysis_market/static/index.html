@@ -20,6 +20,7 @@
         <button data-view="agents"><span>06</span><strong>多agent股票分析</strong><small>五专家 · Kimi 主编</small></button>
         <button data-view="chat"><span>07</span><strong>多 Agent 对话</strong><small>连续追问 · 实时链路</small></button>
         <button data-view="weekly"><span>08</span><strong>一周走势预测</strong><small>热点 · 消息 · 行业周期</small></button>
+        <button data-view="monthly"><span>09</span><strong>股票月度分析</strong><small>20 日路径 · 月末区间</small></button>
       </nav>
       <div class="sidebar-bottom"><div class="system-dot"></div><span>本地研究系统</span><p>数据与模型仅供研究，不构成投资建议。</p></div>
     </aside>
@@ -28,7 +29,7 @@
       <header class="topbar">
         <div class="view-heading"><p id="view-eyebrow">MARKET TIMING</p><h1 id="view-title">好时机</h1><span id="view-subtitle">判断趋势、行业强弱与事件驱动的研究窗口</span></div>
         <form id="search-form" class="global-search">
-          <input id="query" value="贵州茅台" maxlength="40" autocomplete="off" aria-label="股票名称或代码" placeholder="股票名称 / 6位代码" required>
+          <input id="query" value="贵州茅台" maxlength="40" autocomplete="off" aria-label="沪深北 A 股或港股名称、代码" placeholder="股票名称 / A股6位 / 港股5位" required>
           <button id="submit" type="submit">分析</button>
         </form>
       </header>
@@ -44,8 +45,8 @@
         <div id="error" class="notice error hidden" role="alert"></div>
 
         <section id="empty-state" class="empty-state">
-          <p class="eyebrow">A-SHARE RESEARCH WORKSPACE</p><h2>从事实出发，建立完整股票研究视图。</h2>
-          <p>输入股票名称或代码，一次获取行情、财报、板块、公告、历史统计与多 Agent 结论。左侧切换研究维度，下方进行股票池组合筛选。</p>
+          <p class="eyebrow">A-SHARE × HK STOCK RESEARCH</p><h2>从事实出发，建立完整股票研究视图。</h2>
+          <p>支持沪深北全部 A 股与港股名称、代码检索，一次获取行情、财报、历史统计与多 Agent 结论。左侧切换研究维度，下方进行跨市场股票池组合筛选。</p>
           <div class="empty-features"><span>七维评分</span><span>历史回测统计</span><span>公告事件</span><span>组合筛选</span><span>多 Agent 研究</span></div>
         </section>
 
@@ -85,7 +86,7 @@
             </section>
             <div id="risk-veto-banner" class="risk-veto hidden" role="alert"><strong>重大风险优先</strong><p id="risk-veto-text"></p></div>
             <section class="panel"><div class="panel-head"><div><h3>七个评估维度</h3><p id="factor-coverage"></p></div><span class="tag">缺失数据不按零分</span></div><div id="factor-dimension-grid" class="factor-dimension-grid"></div></section>
-            <section class="panel"><div class="panel-head"><div><h3>核心指标与事实证据</h3><p>净利润、现金流和资产负债指标均使用同一报告期；金额按亿元展示</p></div><span id="factor-report-date" class="tag"></span></div><div id="core-metric-grid" class="core-metric-grid"></div><p class="small-note">ROE 为报告期简单年化参考；FCF = 经营现金流 − 购建长期资产现金；PS 使用最新报告营收简单年化，均非预测口径。</p></section>
+            <section class="panel"><div class="panel-head"><div><h3>核心指标与事实证据</h3><p>净利润、现金流和资产负债指标均使用同一报告期；金额按亿元人民币展示</p></div><span id="factor-report-date" class="tag"></span></div><div id="core-metric-grid" class="core-metric-grid"></div><p class="small-note">ROE 为报告期简单年化参考；FCF = 经营现金流 − 购建长期资产现金；PS 使用最新报告营收简单年化，均非预测口径。</p></section>
             <div class="two-col">
               <section class="panel"><div class="panel-head"><div><h3>风险排雷</h3><p>高风险信号需要核对公告、审计报告和财务附注</p></div></div><div id="red-flag-list" class="red-flag-list"></div></section>
               <section class="panel"><div class="panel-head"><div><h3>研究清单</h3><p>避免单一指标和短期价格替代完整研究</p></div><span id="research-progress" class="tag">0 / 8</span></div><div class="research-checklist">
@@ -119,6 +120,19 @@
             <section class="panel"><div class="panel-head"><div><h3>利好与利空消息依据</h3><p>仅公司相关新闻进入舆情调整；所有标题均需阅读原文核实</p></div></div><div id="weekly-news-list" class="announcement-list"></div><ul id="weekly-risk-list" class="reason-list"></ul></section>
           </div>
 
+          <div id="view-monthly" class="view-panel hidden">
+            <section class="panel weekly-hero monthly-hero">
+              <div><p class="eyebrow">ONE-MONTH OUTLOOK · 20 TRADING DAYS</p><h3>未来一个月预测走势</h3><p id="monthly-method"></p></div>
+              <div class="weekly-result"><span id="monthly-direction" class="verdict"></span><strong id="monthly-return"></strong><small>20 个交易日累计估计</small></div>
+              <div class="weekly-comparison"><div><span>原统计模型</span><strong id="monthly-statistical"></strong></div><div><span>多因子影响</span><strong id="monthly-factor-impact"></strong></div></div>
+            </section>
+            <section class="panel"><div class="panel-head"><div><h3>历史价格与未来一个月路径</h3><p id="monthly-period"></p></div><span class="tag">橙色预测 · 阴影约80%区间</span></div><svg id="monthly-chart" class="price-chart" viewBox="0 0 1000 300" role="img" aria-label="股票未来一个月预测走势"></svg></section>
+            <div class="metric-grid five standalone"><div><span>月末预测收盘</span><strong id="monthly-close"></strong></div><div><span>月末约80%区间</span><strong id="monthly-range"></strong></div><div><span>路径预计最低 ~ 最高</span><strong id="monthly-high-low"></strong></div><div><span>预测路径最大回撤</span><strong id="monthly-drawdown"></strong></div><div><span>上涨 / 下跌 / 震荡天数</span><strong id="monthly-breadth"></strong></div></div>
+            <section class="panel"><div class="panel-head"><div><h3>5 / 10 / 15 / 20 日预测节点</h3><p>累计涨跌幅均以当前行情价格为基准，区间随期限扩大</p></div></div><div id="monthly-checkpoint-grid" class="monthly-checkpoint-grid"></div></section>
+            <section class="panel"><div class="panel-head"><div><h3>未来 20 个交易日逐日预测</h3><p id="monthly-intraday-note"></p></div></div><div class="table-wrap"><table><thead><tr><th>交易日</th><th>方向</th><th>当日涨跌幅</th><th>累计涨跌幅</th><th>预测收盘</th><th>约80%收盘区间</th></tr></thead><tbody id="monthly-body"></tbody></table></div></section>
+            <section class="panel"><div class="panel-head"><div><h3>月度模型边界与风险提示</h3><p id="monthly-factor-note"></p></div></div><ul id="monthly-risk-list" class="reason-list"></ul><p id="monthly-date-note" class="small-note"></p></section>
+          </div>
+
           <div id="view-agents" class="view-panel hidden">
             <section id="ai-research" class="panel"><div class="ai-header"><div><p class="eyebrow">KIMI MULTI-AGENT RESEARCH</p><h3 id="ai-headline" class="ai-headline"></h3><span id="ai-model" class="model-badge"></span></div><span id="ai-run-status" class="agent-status"></span></div><p id="ai-summary" class="ai-summary"></p><p id="ai-conclusion" class="conclusion-box"></p><div class="two-col"><div><h3>研究优势</h3><ul id="ai-strengths" class="reason-list"></ul></div><div><h3>风险与反证</h3><ul id="ai-risks" class="reason-list"></ul></div></div><h3>后续观察项</h3><ul id="ai-watch" class="reason-list"></ul><div id="agent-grid" class="agent-grid"></div><div class="ai-foot"><span id="ai-usage"></span><span id="ai-run-id"></span></div><p id="ai-notice" class="small-note"></p></section>
           </div>
@@ -146,23 +160,23 @@
             </aside>
           </div>
           <form id="chat-form" class="chat-composer">
-            <div class="chat-query-row"><label>研究标的<input id="chat-query" value="贵州茅台" maxlength="40" autocomplete="off" placeholder="股票名称 / 6位代码" required></label><span id="chat-capability">正在检查多 Agent 配置…</span></div>
+            <div class="chat-query-row"><label>研究标的<input id="chat-query" value="贵州茅台" maxlength="40" autocomplete="off" placeholder="股票名称 / A股6位 / 港股5位" required></label><span id="chat-capability">正在检查多 Agent 配置…</span></div>
             <div class="chat-input-row"><textarea id="chat-message" rows="3" maxlength="2000" placeholder="输入你的研究问题，Enter 发送，Shift+Enter 换行" required></textarea><button id="chat-send" type="submit">发送</button></div>
             <div class="chat-composer-foot"><span>会话保存在当前服务进程内，服务重启后请新建会话。</span><span id="chat-error" class="chat-error" role="alert"></span></div>
           </form>
         </section>
 
         <section id="explorer" class="explorer">
-          <div class="section-heading"><div><p class="eyebrow">STOCK EXPLORER</p><h2>股票池条件筛选</h2><p>先加载研究样本，再组合筛选、排序和查看依据；当前模块自动切换默认排序。</p></div><form id="screen-form" class="pool-form"><select id="screen-limit" aria-label="候选池数量"><option value="10">10只候选</option><option value="20" selected>20只候选</option><option value="30">30只候选</option><option value="50">50只候选</option></select><button id="screen-submit" type="submit">加载股票池</button></form></div>
+          <div class="section-heading"><div><p class="eyebrow">STOCK EXPLORER</p><h2>股票池条件筛选</h2><p>先加载研究样本，再组合筛选、排序和查看依据；当前模块自动切换默认排序。</p></div><form id="screen-form" class="pool-form"><select id="screen-market" aria-label="候选池市场"><option value="all" selected>沪深北 A 股 + 港股</option><option value="a">仅沪深北 A 股</option><option value="hk">仅港股</option></select><select id="screen-limit" aria-label="候选池数量"><option value="10">10只候选</option><option value="20" selected>20只候选</option><option value="30">30只候选</option><option value="50">50只候选</option></select><button id="screen-submit" type="submit">加载股票池</button></form></div>
           <div id="screen-loading" class="notice hidden">正在并发获取行情、财报、板块和公告，首次筛选可能需要数十秒…</div><div id="screen-error" class="notice error hidden"></div>
           <form id="filter-form" class="filter-panel">
-            <div class="filter-grid basic"><label>名称 / 代码 / 行业<input id="filter-query" placeholder="模糊查询"></label><label>行业风格<select id="filter-industry"><option value="">全部行业</option><option>金融</option><option>消费</option><option>医药</option><option>科技</option><option>周期</option><option>制造</option><option>综合</option></select></label><label>最低综合分<input id="filter-min-overall" type="number" min="0" max="100" placeholder="0-100"></label><label>最低好股票<input id="filter-min-stock" type="number" min="0" max="100" placeholder="0-100"></label><label>最低好价格<input id="filter-min-price" type="number" min="0" max="100" placeholder="0-100"></label><label>最低好时机<input id="filter-min-timing" type="number" min="0" max="100" placeholder="0-100"></label></div>
+            <div class="filter-grid basic"><label>名称 / 代码 / 行业<input id="filter-query" placeholder="模糊查询"></label><label>交易市场<select id="filter-market"><option value="">全部市场</option><option value="沪A">沪 A</option><option value="深A">深 A</option><option value="北A">北 A</option><option value="京A">京 A</option><option value="科创板">科创板</option><option value="港股">港股</option></select></label><label>行业风格<select id="filter-industry"><option value="">全部行业</option><option>金融</option><option>消费</option><option>医药</option><option>科技</option><option>周期</option><option>制造</option><option>综合</option></select></label><label>最低综合分<input id="filter-min-overall" type="number" min="0" max="100" placeholder="0-100"></label><label>最低好股票<input id="filter-min-stock" type="number" min="0" max="100" placeholder="0-100"></label><label>最低好价格<input id="filter-min-price" type="number" min="0" max="100" placeholder="0-100"></label><label>最低好时机<input id="filter-min-timing" type="number" min="0" max="100" placeholder="0-100"></label></div>
             <details class="advanced-filters"><summary>估值、业绩、技术与公告高级条件</summary><div class="filter-grid"><label>PE 最低<input id="filter-pe-min" type="number" step="any" placeholder="例如 0"></label><label>PE 最高<input id="filter-pe-max" type="number" step="any" placeholder="例如 30"></label><label>PB 最高<input id="filter-pb-max" type="number" step="any" placeholder="例如 5"></label><label>最低营收同比%<input id="filter-revenue-min" type="number" step="any" placeholder="例如 10"></label><label>最低净利同比%<input id="filter-profit-min" type="number" step="any" placeholder="例如 10"></label><label>最低年化 ROE%<input id="filter-roe-min" type="number" step="any" placeholder="例如 12"></label><label>20日动量最低%<input id="filter-momentum-min" type="number" step="any"></label><label>20日动量最高%<input id="filter-momentum-max" type="number" step="any"></label><label>RSI 最低<input id="filter-rsi-min" type="number" step="any" placeholder="例如 40"></label><label>RSI 最高<input id="filter-rsi-max" type="number" step="any" placeholder="例如 70"></label><label>公告事件<select id="filter-announcement"><option value="">全部</option><option value="positive">有利好关键词</option><option value="risk">有风险关键词</option><option value="no-risk">无风险关键词</option><option value="neutral">无命中事件</option></select></label></div></details>
             <div class="filter-actions"><label>排序字段<select id="sort-by"><option value="overall">综合分</option><option value="good_stock">好股票分</option><option value="good_price">好价格分</option><option value="good_timing">好时机分</option><option value="pe">动态 PE</option><option value="pb">PB</option><option value="market_cap">总市值</option><option value="revenue_growth">营收同比</option><option value="profit_growth">净利同比</option><option value="roe">年化 ROE</option><option value="momentum">20日动量</option><option value="rsi">RSI</option></select></label><label>方向<select id="sort-order"><option value="desc">从高到低</option><option value="asc">从低到高</option></select></label><button type="submit" class="primary">应用筛选</button><button id="filter-reset" type="button">重置</button><button id="export-btn" type="button">导出 CSV</button></div>
           </form>
           <div id="screen-result" class="hidden"><div class="result-toolbar"><span id="filter-summary"></span><div id="active-filters" class="active-filters"></div></div><div id="qualified-list" class="qualified-list"></div><div class="table-wrap explorer-table"><table><thead id="explorer-head"></thead><tbody id="explorer-body"></tbody></table></div><div id="screen-meta" class="small-note"></div></div>
           <section id="explorer-detail" class="panel hidden"><div class="panel-head"><div><h3 id="detail-title"></h3><p id="detail-note"></p></div><button id="detail-close" type="button" class="text-button">关闭</button></div><div class="three-col"><div><h3>好股票依据</h3><ul id="detail-stock" class="reason-list"></ul></div><div><h3>好价格依据</h3><ul id="detail-price" class="reason-list"></ul></div><div><h3>好时机依据</h3><ul id="detail-timing" class="reason-list"></ul></div></div></section>
-          <p class="disclaimer">候选池按总市值选取，存在大市值样本偏差。筛选和排序是研究工具，不代表收益承诺或买卖建议。</p>
+          <p class="disclaimer">候选池按数据源总市值选取，存在大市值样本偏差，跨市场原始市值未做汇率折算。港股公告暂未接入，行情以港元、财报以人民币计价。筛选和排序不代表收益承诺或买卖建议。</p>
         </section>
       </main>
     </div>

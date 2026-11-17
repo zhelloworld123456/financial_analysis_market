@@ -39,6 +39,7 @@ class EastmoneyProvider:
     HISTORY_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
     FINANCE_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
     LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+    LIST_URLS = (LIST_URL, "https://push2delay.eastmoney.com/api/qt/clist/get")
     ANNOUNCEMENT_URL = "https://np-anotice-stock.eastmoney.com/api/security/ann"
     NEWS_URL = "https://search-api-web.eastmoney.com/search/jsonp"
 
@@ -46,22 +47,24 @@ class EastmoneyProvider:
         self.timeout = timeout
         self._sector_cache: dict[str, tuple[float, SectorPerformance | None]] = {}
         self._sector_cache_lock = threading.Lock()
-        self._market_cache: dict[str, tuple[float, MarketContext]] = {}
+        self._market_cache: dict[tuple[str, str], tuple[float, MarketContext]] = {}
         self._market_cache_lock = threading.Lock()
 
-    def resolve(self, query: str) -> Stock:
+    def search(self, query: str, market: str = "all") -> list[Stock]:
         query = query.strip()
         if not query:
-            raise InvalidStockQuery("请输入 A 股股票名称或 6 位股票代码")
+            raise InvalidStockQuery("请输入沪深北 A 股或港股名称、股票代码")
         if len(query) > 40:
             raise InvalidStockQuery("股票名称过长，请重新输入")
+        if market not in ("all", "a", "hk"):
+            raise InvalidStockQuery("市场范围仅支持 all、a 或 hk")
         payload = self._get_json(
             self.SEARCH_URL,
             {
                 "input": query,
                 "type": "14",
                 "token": "D43BF722C8E33BD1F56DE69FD3F78FD6",
-                "count": "20",
+                "count": "50",
             },
         )
         rows = (payload.get("QuotationCodeTable") or {}).get("Data") or []
@@ -69,57 +72,153 @@ class EastmoneyProvider:
         for row in rows:
             code = str(row.get("Code") or "")
             secid = str(row.get("QuoteID") or "")
-            if row.get("Classify") == "AStock" and re.fullmatch(r"\d{6}", code) and secid:
-                candidates.append(
-                    Stock(
-                        code=code,
-                        name=str(row.get("Name") or code),
-                        secid=secid,
-                        market=str(row.get("SecurityTypeName") or self._market_name(code)),
-                    )
+            security_type = str(row.get("SecurityTypeName") or "")
+            is_a = re.fullmatch(r"\d{6}", code) and (
+                row.get("Classify") == "AStock" or security_type in ("沪A", "深A", "京A", "北A", "科创板")
+            )
+            is_hk = (
+                row.get("Classify") == "HK"
+                and re.fullmatch(r"\d{5}", code)
+                and secid.startswith("116.")
+            )
+            if not secid or (market == "a" and not is_a) or (market == "hk" and not is_hk):
+                continue
+            if not is_a and not is_hk:
+                continue
+            candidates.append(
+                Stock(
+                    code=code,
+                    name=str(row.get("Name") or code),
+                    secid=secid,
+                    market=security_type or self._market_name(code),
+                    currency="HKD" if is_hk else "CNY",
                 )
-        if not candidates:
-            raise InvalidStockQuery(f"未找到 A 股“{query}”，请检查名称或改用 6 位代码")
+            )
+        return candidates
 
-        normalized = query.casefold()
+    def resolve(self, query: str) -> Stock:
+        candidates = self.search(query)
+        if not candidates:
+            raise InvalidStockQuery(f"未找到沪深北 A 股或港股“{query.strip()}”，请检查名称或代码")
+
+        normalized = query.strip().casefold()
         exact = [
             stock
             for stock in candidates
-            if query in (stock.name, stock.code) or normalized == stock.name.casefold()
+            if query.strip() in (stock.name, stock.code) or normalized == stock.name.casefold()
         ]
         if len(exact) == 1:
             return exact[0]
         if len(candidates) == 1:
             return candidates[0]
-        choices = "、".join(f"{stock.name}({stock.code})" for stock in candidates[:6])
+        choices = "、".join(f"{stock.name}({stock.market} {stock.code})" for stock in candidates[:6])
         raise InvalidStockQuery(f"找到多只相似股票，请输入完整名称或代码：{choices}")
 
-    def list_candidates(self, limit: int) -> list[Stock]:
-        payload = self._get_json(
-            self.LIST_URL,
-            {
-                "pn": "1",
-                "pz": str(min(limit * 2, 100)),
-                "po": "1",
-                "np": "1",
-                "fltt": "2",
-                "invt": "2",
-                "fid": "f20",
-                "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
-                "fields": "f12,f13,f14,f20",
-            },
-        )
+    def list_candidates(self, limit: int, market: str = "all") -> list[Stock]:
+        markets = {
+            "all": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048,m:128+t:3,m:128+t:4,m:128+t:1,m:128+t:2",
+            "a": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
+            "hk": "m:128+t:3,m:128+t:4,m:128+t:1,m:128+t:2",
+        }
+        if market not in markets:
+            raise ValueError("市场范围仅支持 all、a 或 hk")
+        try:
+            payload = self._get_list_json(
+                {
+                    "pn": "1",
+                    "pz": str(min(limit * 2, 100)),
+                    "po": "1",
+                    "np": "1",
+                    "fltt": "2",
+                    "invt": "2",
+                    "fid": "f20",
+                    "fs": markets[market],
+                    "fields": "f12,f13,f14,f20",
+                },
+            )
+        except DataSourceError:
+            return self._list_candidates_fallback(limit, market)
         rows = (payload.get("data") or {}).get("diff") or []
         stocks = []
         for row in rows:
             code = str(row.get("f12") or "")
             name = str(row.get("f14") or "")
-            if not re.fullmatch(r"\d{6}", code) or "ST" in name.upper():
+            is_hk = market == "hk" or (market == "all" and row.get("f13") == 128)
+            if not re.fullmatch(r"\d{5}" if is_hk else r"\d{6}", code) or "ST" in name.upper():
                 continue
-            market = row.get("f13")
-            stocks.append(Stock(code, name, f"{market}.{code}", self._market_name(code)))
+            secid = f"116.{code}" if is_hk else f"{row.get('f13')}.{code}"
+            stocks.append(Stock(code, name, secid, "港股" if is_hk else self._market_name(code), "HKD" if is_hk else "CNY"))
             if len(stocks) >= limit:
                 break
+        if not stocks:
+            return self._list_candidates_fallback(limit, market)
+        return stocks
+
+    def _list_candidates_fallback(self, limit: int, market: str) -> list[Stock]:
+        candidates: list[tuple[float, Stock]] = []
+        if market in ("all", "a"):
+            raw = self._get_text(
+                "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+                "Market_Center.getHQNodeData?"
+                + urlencode(
+                    {
+                        "page": "1",
+                        "num": str(min(limit * 2, 100)),
+                        "sort": "mktcap",
+                        "asc": "0",
+                        "node": "hs_a",
+                        "symbol": "",
+                        "_s_r_a": "page",
+                    }
+                )
+            )
+            try:
+                rows = json.loads(raw)
+            except ValueError as exc:
+                raise DataSourceError("新浪 A 股备用列表返回格式异常") from exc
+            for row in rows if isinstance(rows, list) else []:
+                code = str(row.get("code") or "")
+                name = str(row.get("name") or "")
+                market_cap = _number(row.get("mktcap"))
+                if not re.fullmatch(r"\d{6}", code) or "ST" in name.upper() or not market_cap:
+                    continue
+                secid = f"1.{code}" if str(row.get("symbol") or "").startswith("sh") else f"0.{code}"
+                candidates.append((market_cap * 10000, Stock(code, name, secid, self._market_name(code))))
+        if market in ("all", "hk"):
+            base_params = {
+                "reportName": "RPT_HKF10_FN_MAININDICATOR",
+                "columns": "SECUCODE,SECURITY_CODE,SECURITY_NAME_ABBR,TOTAL_MARKET_CAP,REPORT_DATE",
+                "pageNumber": "1",
+                "sortTypes": "-1",
+                "source": "HSF10",
+                "client": "PC",
+            }
+            latest_payload = self._get_json(
+                self.FINANCE_URL,
+                {**base_params, "filter": "", "pageSize": "1", "sortColumns": "REPORT_DATE"},
+            )
+            latest_rows = (latest_payload.get("result") or {}).get("data") or []
+            latest_date = str(latest_rows[0].get("REPORT_DATE") or "") if latest_rows else ""
+            if not latest_date:
+                raise DataSourceError("港股备用列表暂无最新报告期")
+            payload = self._get_json(
+                self.FINANCE_URL,
+                {
+                    **base_params,
+                    "filter": f"(REPORT_DATE='{latest_date}')",
+                    "pageSize": str(min(limit * 2, 100)),
+                    "sortColumns": "TOTAL_MARKET_CAP",
+                },
+            )
+            for row in (payload.get("result") or {}).get("data") or []:
+                code = str(row.get("SECURITY_CODE") or "")
+                name = str(row.get("SECURITY_NAME_ABBR") or "")
+                market_cap = _number(row.get("TOTAL_MARKET_CAP"))
+                if not re.fullmatch(r"\d{5}", code) or "ST" in name.upper() or not market_cap:
+                    continue
+                candidates.append((market_cap, Stock(code, name, f"116.{code}", "港股", "HKD")))
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        stocks = [stock for _, stock in candidates[:limit]]
         if not stocks:
             raise DataSourceError("股票候选池为空，请稍后重试")
         return stocks
@@ -138,19 +237,26 @@ class EastmoneyProvider:
         announcements: tuple[Announcement, ...] = ()
         sector: SectorPerformance | None = None
         news: tuple[NewsItem, ...] = ()
-        sources = [quote.source, "东方财富业绩报表接口"]
+        sources = [quote.source]
+        if financials:
+            sources.append("东方财富港股财务接口" if self._is_hk(stock) else "东方财富业绩报表接口")
         if research:
-            try:
-                announcements = self.fetch_announcements(stock)
-                sources.append("东方财富公告接口")
-            except DataSourceError:
-                warnings.append("公告接口暂时不可用，好时机评分未计入公告事件")
+            if self._is_hk(stock):
+                warnings.append("港股公告暂未接入，公告事件按中性处理")
+            else:
+                try:
+                    announcements = self.fetch_announcements(stock)
+                    sources.append("东方财富公告接口")
+                except DataSourceError:
+                    warnings.append("公告接口暂时不可用，好时机评分未计入公告事件")
             try:
                 sector = self.fetch_sector(financials, quote.industry)
                 if sector:
                     sources.append("东方财富行业板块行情")
             except DataSourceError:
                 warnings.append("行业板块行情暂时不可用，板块强弱按中性值处理")
+        if self._is_hk(stock):
+            warnings.append("港股行情与市值以港元计价，港股财务报表以人民币计价；跨市场市值排序未做汇率折算")
         if include_news:
             try:
                 news = self.fetch_news(stock)
@@ -194,7 +300,7 @@ class EastmoneyProvider:
                     raise DataSourceError("该股票暂无有效行情，可能尚未上市或长期停牌")
                 timestamp = _number(data.get("f124"))
                 quoted_at = ""
-                if timestamp:
+                if timestamp and timestamp > 0:
                     quoted_at = datetime.fromtimestamp(timestamp, ZoneInfo("Asia/Shanghai")).isoformat(
                         timespec="seconds"
                     )
@@ -224,7 +330,7 @@ class EastmoneyProvider:
             raise last_error or fallback_error
 
     def _fetch_quote_tencent(self, stock: Stock) -> Quote:
-        symbol = self._tencent_symbol(stock.code)
+        symbol = self._tencent_symbol(stock)
         raw = self._get_text(f"https://qt.gtimg.cn/q={symbol}", encoding="gbk")
         if "=" not in raw:
             raise DataSourceError("备用行情接口返回格式异常")
@@ -308,19 +414,20 @@ class EastmoneyProvider:
         return tuple(bars[-320:])
 
     def _fetch_history_tencent(self, stock: Stock) -> tuple[PriceBar, ...]:
-        symbol = self._tencent_symbol(stock.code)
-        try:
-            payload = self._get_json(
-                "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-                {"param": f"{symbol},day,,,320,qfq"},
-            )
-        except DataSourceError:
-            payload = self._get_json(
-                "https://web.ifzq.gtimg.cn/appstock/app/kline/kline",
-                {"param": f"{symbol},day,,,320"},
-            )
-        data = (payload.get("data") or {}).get(symbol) or {}
-        rows = data.get("qfqday") or data.get("day") or []
+        symbol = self._tencent_symbol(stock)
+        rows = []
+        for path in ("newfqkline/get", "fqkline/get", "kline/kline"):
+            try:
+                payload = self._get_json(
+                    f"https://web.ifzq.gtimg.cn/appstock/app/{path}",
+                    {"param": f"{symbol},day,,,320,qfq"},
+                )
+            except DataSourceError:
+                continue
+            data = (payload.get("data") or {}).get(symbol) or {}
+            rows = data.get("qfqday") or data.get("day") or []
+            if len(rows) >= 30:
+                break
         bars = []
         previous_close = None
         for row in rows:
@@ -348,6 +455,8 @@ class EastmoneyProvider:
         return tuple(bars[-320:])
 
     def fetch_financials(self, stock: Stock) -> tuple[FinancialReport, ...]:
+        if self._is_hk(stock):
+            return self._fetch_hk_financials(stock)
         payload = self._get_json(
             self.FINANCE_URL,
             {
@@ -435,6 +544,52 @@ class EastmoneyProvider:
             )
             enriched.append(replace(report, **values, free_cash_flow=free_cash_flow))
         return tuple(enriched)
+
+    def _fetch_hk_financials(self, stock: Stock) -> tuple[FinancialReport, ...]:
+        payload = self._get_json(
+            self.FINANCE_URL,
+            {
+                "reportName": "RPT_HKF10_FN_MAININDICATOR",
+                "columns": "ALL",
+                "filter": f'(SECUCODE="{stock.code}.HK")',
+                "pageNumber": "1",
+                "pageSize": "4",
+                "sortTypes": "-1",
+                "sortColumns": "REPORT_DATE",
+                "source": "HSF10",
+                "client": "PC",
+            },
+        )
+        if not payload.get("success"):
+            raise DataSourceError("港股财务接口暂时不可用")
+        rows = (payload.get("result") or {}).get("data") or []
+        reports = []
+        for row in rows:
+            reports.append(
+                FinancialReport(
+                    report_date=str(row.get("REPORT_DATE") or "")[:10],
+                    report_type=str(row.get("REPORT_TYPE") or "定期报告"),
+                    revenue=_number(row.get("OPERATE_INCOME")),
+                    net_profit=_number(row.get("HOLDER_PROFIT")),
+                    revenue_yoy_pct=_number(row.get("OPERATE_INCOME_YOY")),
+                    net_profit_yoy_pct=_number(row.get("HOLDER_PROFIT_YOY")),
+                    eps=_number(row.get("BASIC_EPS")),
+                    roe_pct=_number(row.get("ROE_AVG")),
+                    gross_margin_pct=_number(row.get("GROSS_PROFIT_RATIO")),
+                    bps=_number(row.get("BPS")),
+                    cash_flow_per_share=_number(row.get("PER_NETCASH_OPERATE")),
+                    operating_cash_flow=_number(row.get("NETCASH_OPERATE")),
+                    total_assets=_number(row.get("TOTAL_ASSETS")),
+                    total_liabilities=_number(row.get("TOTAL_LIABILITIES")),
+                    total_equity=_number(row.get("TOTAL_PARENT_EQUITY")),
+                    debt_asset_ratio_pct=_number(row.get("DEBT_ASSET_RATIO")),
+                    current_ratio=_number(row.get("CURRENT_RATIO")),
+                    operate_profit=_number(row.get("OPERATE_PROFIT")),
+                    total_profit=_number(row.get("PRETAX_PROFIT")),
+                    dividend_yield_pct=_number(row.get("DIVIDEND_RATE")),
+                )
+            )
+        return tuple(reports)
 
     def _fetch_financial_supplement(self, stock: Stock, report_name: str) -> list[dict[str, Any]]:
         payload = self._get_json(
@@ -531,14 +686,20 @@ class EastmoneyProvider:
             )
         return tuple(items)
 
-    def fetch_market_context(self, sector_code: str = "") -> MarketContext:
+    def fetch_market_context(self, sector_code: str = "", market: str = "") -> MarketContext:
         now = time.monotonic()
+        cache_key = (sector_code, market)
         with self._market_cache_lock:
-            cached = self._market_cache.get(sector_code)
+            cached = self._market_cache.get(cache_key)
             if cached and now - cached[0] < 300:
                 return cached[1]
         indices = []
-        for code, name, secid in (("000001", "上证指数", "1.000001"), ("399001", "深证成指", "0.399001"), ("399006", "创业板指", "0.399006")):
+        index_universe = (
+            (("HSI", "恒生指数", "100.HSI"), ("HSCEI", "国企指数", "100.HSCEI"), ("HSTECH", "恒生科技", "124.HSTECH"))
+            if market == "港股"
+            else (("000001", "上证指数", "1.000001"), ("399001", "深证成指", "0.399001"), ("399006", "创业板指", "0.399006"))
+        )
+        for code, name, secid in index_universe:
             try:
                 bars = self.fetch_history(Stock(code, name, secid, "指数"))
                 closes = [bar.close for bar in bars]
@@ -557,8 +718,9 @@ class EastmoneyProvider:
         stock_sector_rank = None
         stock_sector_change_5d = None
         try:
-            payload = self._get_json(
-                self.LIST_URL,
+            if market == "港股":
+                raise DataSourceError("港股行业热点榜暂未接入")
+            payload = self._get_list_json(
                 {
                     "pn": "1",
                     "pz": "500",
@@ -595,7 +757,7 @@ class EastmoneyProvider:
             pass
         context = MarketContext(tuple(indices), tuple(hotspots), stock_sector_rank, stock_sector_change_5d)
         with self._market_cache_lock:
-            self._market_cache[sector_code] = (now, context)
+            self._market_cache[cache_key] = (now, context)
         return context
 
     def fetch_sector(
@@ -682,6 +844,15 @@ class EastmoneyProvider:
                     time.sleep(0.4 * (attempt + 1))
         raise DataSourceError("备用行情服务连接失败") from last_error
 
+    def _get_list_json(self, params: dict[str, str]) -> dict[str, Any]:
+        last_error: DataSourceError | None = None
+        for url in self.LIST_URLS:
+            try:
+                return self._get_json(url, params)
+            except DataSourceError as exc:
+                last_error = exc
+        raise last_error or DataSourceError("股票列表服务连接失败")
+
     def _get_json(self, url: str, params: dict[str, str]) -> dict[str, Any]:
         full_url = f"{url}?{urlencode(params)}"
         last_error: Exception | None = None
@@ -707,19 +878,29 @@ class EastmoneyProvider:
         raise DataSourceError("数据服务连接失败，请检查网络后重试") from last_error
 
     @staticmethod
-    def _secid(code: str) -> str:
-        return f"{'1' if code.startswith('6') else '0'}.{code}"
+    def _is_hk(stock: Stock) -> bool:
+        return stock.market == "港股" or stock.secid.startswith(("116.", "128."))
 
     @staticmethod
-    def _tencent_symbol(code: str) -> str:
-        if code.startswith("6"):
-            return f"sh{code}"
-        if code.startswith(("4", "8", "92")):
-            return f"bj{code}"
-        return f"sz{code}"
+    def _secid(code: str) -> str:
+        if re.fullmatch(r"\d{5}", code):
+            return f"116.{code}"
+        return f"{'1' if code.startswith('6') else '0'}.{code}"
+
+    @classmethod
+    def _tencent_symbol(cls, stock: Stock) -> str:
+        if cls._is_hk(stock) or stock.code in ("HSI", "HSCEI", "HSTECH"):
+            return f"hk{stock.code}"
+        if stock.code.startswith("6"):
+            return f"sh{stock.code}"
+        if stock.code.startswith(("4", "8", "92")):
+            return f"bj{stock.code}"
+        return f"sz{stock.code}"
 
     @staticmethod
     def _market_name(code: str) -> str:
+        if re.fullmatch(r"\d{5}", code):
+            return "港股"
         if code.startswith("6"):
             return "沪A"
         if code.startswith(("4", "8", "92")):

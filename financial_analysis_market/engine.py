@@ -38,7 +38,9 @@ class AnalysisEngine:
         warnings = list(bundle.warnings)
         sources = list(bundle.sources)
         try:
-            market = provider.fetch_market_context(bundle.sector.code if bundle.sector else "")
+            market = provider.fetch_market_context(
+                bundle.sector.code if bundle.sector else "", stock.market
+            )
             if market.indices or market.hotspots:
                 sources.append("东方财富指数与行业热点行情")
         except DataSourceError:
@@ -48,15 +50,18 @@ class AnalysisEngine:
         fundamental = analyzer.fundamental(bundle.financials)
         historical = analyzer.historical(bundle.quote, bundle.history)
         scores = scorer.score(bundle, technical, historical)
+        forecast_inputs = {
+            "sector": bundle.sector,
+            "market": market,
+            "news": bundle.news,
+            "announcement_review": scores["announcement_review"],
+            "financials": bundle.financials,
+        }
         forecast = forecaster.predict(
-            bundle.history,
-            bundle.quote.price,
-            technical["rsi14"],
-            sector=bundle.sector,
-            market=market,
-            news=bundle.news,
-            announcement_review=scores["announcement_review"],
-            financials=bundle.financials,
+            bundle.history, bundle.quote.price, technical["rsi14"], **forecast_inputs
+        )
+        monthly_forecast = forecaster.predict_month(
+            bundle.history, bundle.quote.price, technical["rsi14"], **forecast_inputs
         )
         risks = analyzer.risks(technical, fundamental, bundle.financials)
         risks.extend(scores["risk_flags"])
@@ -93,6 +98,7 @@ class AnalysisEngine:
             "market_environment": asdict(market) if market else None,
             "news": [asdict(item) for item in bundle.news],
             "forecast": forecast,
+            "monthly_forecast": monthly_forecast,
             "history": [asdict(bar) for bar in bundle.history[-90:]],
             "risks": risks,
             "sources": sources,
@@ -122,10 +128,10 @@ class AnalysisEngine:
             "conversation": self.context.get("conversation").public_config(),
         }
 
-    def screen(self, limit: int = 20) -> dict[str, Any]:
-        self.context.emit("screen/started", {"limit": limit})
-        result = self.context.get("screener").screen(limit)
-        self.context.emit("screen/completed", {"screened": result["meta"]["screened"]})
+    def screen(self, limit: int = 20, market: str = "all") -> dict[str, Any]:
+        self.context.emit("screen/started", {"limit": limit, "market": market})
+        result = self.context.get("screener").screen(limit, market)
+        self.context.emit("screen/completed", {"screened": result["meta"]["screened"], "market": market})
         return result
 
 

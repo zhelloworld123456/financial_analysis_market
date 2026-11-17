@@ -12,13 +12,14 @@ from .errors import FinancialAnalysisError
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fam",
-        description="输入 A 股名称或代码，获取最新行情、业绩和未来 5 个工作日统计预测",
+        description="输入沪深北 A 股或港股名称、代码，获取最新行情、业绩和未来 5 日及 20 日统计预测",
     )
-    parser.add_argument("query", nargs="?", help="股票名称或 6 位代码，例如：贵州茅台")
+    parser.add_argument("query", nargs="?", help="股票名称或代码，例如：贵州茅台、00700")
     parser.add_argument("--json", action="store_true", help="输出完整 JSON 结果")
     parser.add_argument("--no-ai", action="store_true", help="关闭 Kimi 多 Agent，仅运行规则模型")
     parser.add_argument("--screen", action="store_true", help="运行好股票、好价格、好时机三维筛选")
     parser.add_argument("--limit", type=int, default=20, help="筛选候选池数量，5～50，默认 20")
+    parser.add_argument("--market", choices=("all", "a", "hk"), default="all", help="筛选市场：全部、A 股或港股")
     parser.add_argument("--web", action="store_true", help="启动本地可视化网页")
     parser.add_argument("--host", default="127.0.0.1", help="网页监听地址，默认 127.0.0.1")
     parser.add_argument("--port", type=int, default=8000, help="网页端口，默认 8000")
@@ -41,7 +42,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not 5 <= args.limit <= 50:
             parser.error("--limit 必须在 5～50 之间")
         try:
-            result = create_engine().screen(args.limit)
+            result = create_engine().screen(args.limit, args.market)
         except FinancialAnalysisError as exc:
             print(f"筛选失败：{exc}", file=sys.stderr)
             return 1
@@ -71,8 +72,9 @@ def _print_text(result: dict) -> None:
     quote = result["quote"]
     technical = result["technical"]
     forecast = result["forecast"]
-    print(f"\n{stock['name']}（{stock['code']}）  {quote['industry']}")
-    print(f"最新价：{quote['price']:.2f} 元    当日涨跌：{_number(quote['change_pct'], signed=True)}")
+    currency = "港元" if stock.get("currency") == "HKD" else "元"
+    print(f"\n{stock['name']}（{stock['market']} {stock['code']}）  {quote['industry']}")
+    print(f"最新价：{quote['price']:.2f} {currency}    当日涨跌：{_number(quote['change_pct'], signed=True)}")
     print(f"行情时间：{quote['quoted_at'].replace('T', ' ')}")
     print(f"技术状态：{technical['signal']}    RSI14：{technical['rsi14']:.2f}")
     print(f"业绩状态：{result['fundamental']['summary']}")
@@ -104,10 +106,23 @@ def _print_text(result: dict) -> None:
     for day in forecast["days"]:
         print(
             f"{day['date']}  {day['direction']:<4}  {day['change_pct']:>+9.2f}%"
-            f"  {day['predicted_close']:>10.2f} 元"
+            f"  {day['predicted_close']:>10.2f} {currency}"
             f"  {day['lower_close_80']:.2f} ~ {day['upper_close_80']:.2f}"
         )
     print(f"\n五日累计估计：{forecast['weekly_return_pct']:+.2f}%")
+    monthly = result.get("monthly_forecast")
+    if monthly:
+        print(
+            f"未来 20 个工作日估计：{monthly['monthly_return_pct']:+.2f}% / "
+            f"月末 {monthly['predicted_close']:.2f} {currency} / "
+            f"约80%区间 {monthly['lower_close_80']:.2f}～{monthly['upper_close_80']:.2f}"
+        )
+        print(
+            "月度路径节点：" + "；".join(
+                f"{item['horizon']}日 {item['cumulative_return_pct']:+.2f}%"
+                for item in monthly["checkpoints"]
+            )
+        )
     print(result["meta"]["summary"])
     print("\n风险提示")
     for risk in result["risks"]:

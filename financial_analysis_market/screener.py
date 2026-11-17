@@ -27,18 +27,21 @@ class StockScreener:
         self.analyzer = analyzer
         self.scorer = scorer
         self.workers = workers
-        self._cache: dict[int, tuple[float, dict[str, Any]]] = {}
+        self._cache: dict[tuple[int, str], tuple[float, dict[str, Any]]] = {}
         self._cache_lock = threading.Lock()
 
-    def screen(self, limit: int = 20) -> dict[str, Any]:
+    def screen(self, limit: int = 20, market: str = "all") -> dict[str, Any]:
         if not 5 <= limit <= 50:
             raise ValueError("候选池数量必须在 5～50 之间")
+        if market not in ("all", "a", "hk"):
+            raise ValueError("市场范围仅支持 all、a 或 hk")
+        cache_key = (limit, market)
         now = time.monotonic()
         with self._cache_lock:
-            cached = self._cache.get(limit)
+            cached = self._cache.get(cache_key)
             if cached and now - cached[0] < 600:
                 return cached[1]
-        stocks = self.provider.list_candidates(limit)
+        stocks = self.provider.list_candidates(limit, market)
         results = []
         failed = 0
         with ThreadPoolExecutor(max_workers=min(self.workers, len(stocks))) as pool:
@@ -51,11 +54,14 @@ class StockScreener:
         if not results:
             raise DataSourceError("候选股票均未获取到有效数据，请稍后重试")
         results.sort(key=lambda item: item["scores"]["overall_score"], reverse=True)
+        universe_names = {"all": "沪深北 A 股与港股大市值研究样本", "a": "沪深北 A 股大市值研究样本", "hk": "港股大市值研究样本"}
+        currency_note = "；跨市场市值使用数据源原始币种，未做汇率折算" if market == "all" else ""
         output = {
             "meta": {
                 "generated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
-                "universe": "A 股大市值研究样本",
-                "universe_note": f"按总市值降序选取前 {limit} 只非 ST A 股作为精简候选池，不覆盖全市场；结果用于研究排序而非买入名单",
+                "universe": universe_names[market],
+                "market": market,
+                "universe_note": f"按数据源总市值降序选取前 {limit} 只非 ST 股票作为精简候选池，不覆盖全市场{currency_note}；结果用于研究排序而非买入名单",
                 "requested": limit,
                 "screened": len(results),
                 "failed": failed,
@@ -84,10 +90,10 @@ class StockScreener:
                 "好时机": "趋势、动量、RSI、波动、板块相对强弱和近90日公告标题事件",
                 "综合": "七维评分按有效权重归一化；重大风险否决项不参与平均，触发后不进入优选名单",
             },
-            "disclaimer": "筛选是因子排序，不构成投资建议。候选池存在大市值偏差，公告关键词不能替代公告全文和财务报表附注。",
+            "disclaimer": "筛选是因子排序，不构成投资建议。候选池存在大市值偏差；港股公告暂未接入；公告关键词不能替代公告全文和财务报表附注。",
         }
         with self._cache_lock:
-            self._cache[limit] = (now, output)
+            self._cache[cache_key] = (now, output)
         return output
 
     def _research(self, stock: Stock) -> dict[str, Any]:

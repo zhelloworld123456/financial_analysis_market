@@ -26,7 +26,7 @@ button:disabled { cursor: wait; opacity: .55; }
 .brand strong { display: block; font-size: 19px; letter-spacing: .08em; }
 .brand small { display: block; margin-top: 4px; color: #8fa6ac; font-size: 9px; letter-spacing: .12em; }
 .nav-caption { padding: 0 12px 10px; color: #779198; font-size: 10px; letter-spacing: .18em; }
-.side-nav { display: grid; gap: 7px; }
+.side-nav { display: grid; min-height: 0; gap: 7px; overflow-y: auto; }
 .side-nav button { display: grid; grid-template-columns: 28px 1fr; gap: 2px 7px; width: 100%; padding: 13px 12px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #a9babd; text-align: left; }
 .side-nav button:hover { background: var(--sidebar-soft); }
 .side-nav button.active { border-color: #39535c; background: var(--sidebar-soft); color: white; }
@@ -231,7 +231,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .research-checklist label:has(input:checked) { border-color: #a9d1c2; background: #eef7f2; color: var(--ink); }
 .research-checklist input { margin: 2px 0 0; accent-color: var(--down); }
 .weekly-hero { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 26px; }
-.weekly-hero #weekly-method { max-width: 620px; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.weekly-hero #weekly-method, .weekly-hero #monthly-method { max-width: 620px; color: var(--muted); font-size: 11px; line-height: 1.7; }
 .weekly-result { text-align: center; }
 .weekly-result strong { display: block; margin-top: 8px; color: var(--accent); font: 700 36px "SFMono-Regular", Consolas, monospace; }
 .weekly-result small { color: var(--muted); font-size: 10px; }
@@ -255,6 +255,12 @@ tbody tr:last-child td { border-bottom: 0; }
 .factor-card strong { display: block; margin: 8px 0; font-size: 13px; }
 .factor-card p { margin: 7px 0 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
 .factor-adjustment { color: var(--muted); font: 11px "SFMono-Regular", Consolas, monospace; }
+.monthly-checkpoint-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; }
+.monthly-checkpoint { min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: #fafbf8; }
+.monthly-checkpoint > span { display: block; color: var(--muted); font-size: 10px; }
+.monthly-checkpoint > strong { display: block; margin: 10px 0; font: 700 25px "SFMono-Regular", Consolas, monospace; }
+.monthly-checkpoint > div { font-size: 12px; }
+.monthly-checkpoint > small { display: block; margin-top: 7px; color: var(--muted); font-size: 10px; }
 .market-index-grid { display: grid; gap: 9px; }
 .market-index-item { display: grid; grid-template-columns: 1fr repeat(3, auto); gap: 12px; padding: 11px; border-radius: 8px; background: #f5f7f3; font-size: 11px; }
 .market-index-item span { color: var(--muted); }
@@ -310,6 +316,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .trace-panel { position: static; }
   .trace-events { max-height: 420px; }
   .factor-grid, .day-card-grid { grid-template-columns: repeat(3, 1fr); }
+  .monthly-checkpoint-grid { grid-template-columns: repeat(2, 1fr); }
   .weekly-hero { grid-template-columns: 1fr auto; }
   .weekly-comparison { grid-column: 1 / -1; }
 }
@@ -351,7 +358,7 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 @media (max-width: 480px) {
   .metric-grid.three, .metric-grid.five, .filter-grid, .filter-grid.basic { grid-template-columns: 1fr 1fr; }
-  .agent-grid, .day-card-grid, .factor-dimension-grid, .core-metric-grid { grid-template-columns: 1fr; }
+  .agent-grid, .day-card-grid, .factor-dimension-grid, .core-metric-grid, .monthly-checkpoint-grid { grid-template-columns: 1fr; }
   .view-heading span { display: block; margin-top: 6px; }
   .global-search button { padding: 10px 15px; }
   .header-scores > div { min-width: 58px; }

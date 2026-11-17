@@ -24,7 +24,8 @@ const viewConfig = {
   history: { title: '股票历史分析', eyebrow: 'HISTORICAL ANALYSIS', subtitle: '观察长期收益、回撤、波动和年度表现', explorer: false, sort: 'overall' },
   agents: { title: '多agent股票分析', eyebrow: 'MULTI-AGENT RESEARCH', subtitle: '五个专家并行研究，Kimi 主编综合结论', explorer: false, sort: 'overall' },
   chat: { title: '多 Agent 对话', eyebrow: 'MULTI-AGENT CONVERSATION', subtitle: '连续追问、Agent 公开讨论与全链路实时追踪', explorer: false, sort: 'overall' },
-  weekly: { title: '一周走势预测', eyebrow: 'FIVE-TRADING-DAY OUTLOOK', subtitle: '结合热点、消息、行业周期和业绩的五个交易日预测', explorer: false, sort: 'overall' }
+  weekly: { title: '一周走势预测', eyebrow: 'FIVE-TRADING-DAY OUTLOOK', subtitle: '结合热点、消息、行业周期和业绩的五个交易日预测', explorer: false, sort: 'overall' },
+  monthly: { title: '股票月度分析', eyebrow: 'ONE-MONTH OUTLOOK', subtitle: '未来 20 个交易日的预测路径、月末区间与风险边界', explorer: false, sort: 'overall' }
 };
 
 let currentView = 'timing';
@@ -111,21 +112,23 @@ $('search-form').addEventListener('submit', async event => {
 
 function renderStock(data) {
   const { stock, quote, scores } = data;
+  const currency = stock.currency === 'HKD' ? '港元' : '元';
   text('stock-name', stock.name);
-  text('stock-code', `${stock.market} ${stock.code}`);
+  text('stock-code', `${stock.market} ${stock.code} · ${stock.currency || 'CNY'}`);
   text('stock-industry', quote.industry);
-  text('quote-time', `行情时间 ${quote.quoted_at.replace('T', ' ')} · ${quote.source}`);
-  text('last-price', fmt(quote.price));
+  text('quote-time', `行情时间 ${quote.quoted_at.replace('T', ' ')} · ${quote.source} · ${currency}计价`);
+  text('last-price', `${fmt(quote.price)} ${currency}`);
   text('price-change', pct(quote.change_pct));
   $('price-change').className = directionClass(quote.change_pct);
   text('header-score-stock', fmt(scores.good_stock.score, 1));
   text('header-score-price', fmt(scores.good_price.score, 1));
   text('header-score-timing', fmt(scores.good_timing.score, 1));
   text('header-score-overall', fmt(scores.overall_score, 1));
-  text('sources', `数据来源：${data.sources.join('、')}`);
+  text('sources', `数据来源：${data.sources.join('、')}${data.warnings.length ? `；提示：${data.warnings.join('；')}` : ''}`);
   text('generated-at', `生成时间：${data.meta.generated_at.replace('T', ' ')}`);
   renderTiming(data);
   renderWeekly(data);
+  renderMonthly(data);
   renderQuality(data);
   renderValuation(data);
   renderFactors(data);
@@ -280,6 +283,54 @@ function renderWeekly(data) {
   });
   setList('weekly-risk-list', [...forecast.risk_notes, forecast.interval_note, forecast.intraday_note, forecast.date_note]);
   renderChart('weekly-chart', data.history, forecast.days, true);
+}
+
+function renderMonthly(data) {
+  const monthly = data.monthly_forecast;
+  text('monthly-method', monthly.method);
+  text('monthly-direction', monthly.monthly_direction);
+  text('monthly-return', pct(monthly.monthly_return_pct));
+  $('monthly-return').className = directionClass(monthly.monthly_return_pct);
+  text('monthly-statistical', pct(monthly.statistical_monthly_return_pct));
+  text('monthly-factor-impact', pct(monthly.factor_monthly_impact_pct));
+  text('monthly-period', `${monthly.start_date} 至 ${monthly.end_date} · ${monthly.horizon_trading_days} 个交易日 · 历史价格为统计基础`);
+  text('monthly-close', fmt(monthly.predicted_close));
+  text('monthly-range', `${fmt(monthly.lower_close_80)} ~ ${fmt(monthly.upper_close_80)}`);
+  text('monthly-high-low', `${fmt(monthly.predicted_low)} ~ ${fmt(monthly.predicted_high)}`);
+  text('monthly-drawdown', pct(monthly.max_predicted_drawdown_pct));
+  text('monthly-breadth', `${monthly.up_days} / ${monthly.down_days} / ${monthly.flat_days}`);
+  text('monthly-intraday-note', monthly.intraday_note);
+  text('monthly-factor-note', monthly.factor_note);
+  text('monthly-date-note', monthly.date_note);
+  setList('monthly-risk-list', [...monthly.risk_notes, monthly.interval_note]);
+  const checkpoints = $('monthly-checkpoint-grid');
+  checkpoints.replaceChildren();
+  monthly.checkpoints.forEach(point => {
+    const card = document.createElement('article');
+    card.className = 'monthly-checkpoint';
+    card.append(
+      node('span', `第 ${point.horizon} 个交易日 · ${point.date}`),
+      node('strong', pct(point.cumulative_return_pct), directionClass(point.cumulative_return_pct)),
+      node('div', `预测收盘 ${fmt(point.predicted_close)}`),
+      node('small', `约80% ${fmt(point.lower_close_80)} ~ ${fmt(point.upper_close_80)}`)
+    );
+    checkpoints.append(card);
+  });
+  const body = $('monthly-body');
+  body.replaceChildren();
+  monthly.days.forEach(day => {
+    const row = document.createElement('tr');
+    row.append(
+      node('td', `${day.date} 周${day.weekday}`),
+      node('td', day.direction, `direction ${directionClass(day.change_pct)}`),
+      node('td', pct(day.change_pct), directionClass(day.change_pct)),
+      node('td', pct(day.cumulative_return_pct), directionClass(day.cumulative_return_pct)),
+      node('td', fmt(day.predicted_close)),
+      node('td', `${fmt(day.lower_close_80)} ~ ${fmt(day.upper_close_80)}`)
+    );
+    body.append(row);
+  });
+  renderChart('monthly-chart', data.history, monthly.days, true);
 }
 
 function renderQuality(data) {
@@ -554,10 +605,13 @@ function renderChart(id, history, days, includeForecast) {
     markup += `<path d="${upper} ${lower} Z" fill="url(#${gradientId})"/>`;
     markup += `<path d="${historyPath}" fill="none" stroke="#287284" stroke-width="2.3" stroke-linejoin="round"/>`;
     markup += `<path d="${forecastPath}" fill="none" stroke="#e47245" stroke-width="2.5" stroke-dasharray="6 4"/>`;
+    const labelStride = days.length > 10 ? 5 : 1;
     days.forEach((day, index) => {
       const px = x(historical.length + index), py = y(Number(day.predicted_close));
       markup += `<circle cx="${px}" cy="${py}" r="4" fill="#fff" stroke="#e47245" stroke-width="2"/>`;
-      markup += `<text x="${px}" y="${height - 13}" text-anchor="middle" fill="#7a8586" font-size="11">${day.date.slice(5)}</text>`;
+      if (index % labelStride === 0 || index === days.length - 1) {
+        markup += `<text x="${px}" y="${height - 13}" text-anchor="middle" fill="#7a8586" font-size="11">${day.date.slice(5)}</text>`;
+      }
     });
   } else {
     markup += `<path d="${historyPath}" fill="none" stroke="#287284" stroke-width="2.3" stroke-linejoin="round"/>`;
@@ -864,7 +918,7 @@ $('screen-form').addEventListener('submit', async event => {
   try {
     const response = await fetch('/api/screen', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ limit: Number($('screen-limit').value) })
+      body: JSON.stringify({ limit: Number($('screen-limit').value), market: $('screen-market').value })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || '股票池加载失败');
@@ -907,8 +961,13 @@ function applyFilters() {
   const active = [];
   const query = $('filter-query').value.trim().toLowerCase();
   if (query) {
-    items = items.filter(item => `${item.stock.name}${item.stock.code}${item.quote.industry}`.toLowerCase().includes(query));
+    items = items.filter(item => `${item.stock.name}${item.stock.code}${item.stock.market}${item.quote.industry}`.toLowerCase().includes(query));
     active.push(`查询:${query}`);
+  }
+  const market = $('filter-market').value;
+  if (market) {
+    items = items.filter(item => item.stock.market === market);
+    active.push(`市场:${market}`);
   }
   const industry = $('filter-industry').value;
   if (industry) {
@@ -980,6 +1039,7 @@ $('filter-form').addEventListener('submit', event => {
 
 $('filter-reset').addEventListener('click', () => {
   document.querySelectorAll('#filter-form input').forEach(input => { input.value = ''; });
+  $('filter-market').value = '';
   $('filter-industry').value = '';
   $('filter-announcement').value = '';
   $('sort-by').value = viewConfig[currentView].sort;
@@ -990,8 +1050,9 @@ $('filter-reset').addEventListener('click', () => {
 function explorerColumns() {
   const common = [
     { label: '股票', value: item => `${item.stock.name} ${item.stock.code}` },
+    { label: '市场', value: item => item.stock.market },
     { label: '行业', value: item => item.quote.industry },
-    { label: '现价', value: item => fmt(item.quote.price) }
+    { label: '现价', value: item => `${fmt(item.quote.price)} ${item.stock.currency === 'HKD' ? '港元' : '元'}` }
   ];
   if (currentView === 'stock') return common.concat([
     { label: '好股票', value: item => fmt(item.scores.good_stock.score, 1), score: true },
